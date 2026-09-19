@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.egg-info/
+
+# Build output
+build/
+dist/
+*.spec.bak
+ExMaterial.spec
+exmaterial.zip
+exmaterial/ExMaterial.exe
+
+# User data: deliberately never publish experimental records or generated plots.
+information/
+
+# Operating-system and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
