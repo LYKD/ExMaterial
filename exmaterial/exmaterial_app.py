@@ -42,7 +42,7 @@ except ImportError:  # Supports launching this file directly from its source fol
 
 
 APP_NAME = "ExMaterial"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 APP_TITLE = f"{APP_NAME} {APP_VERSION} · 样品记录"
 DATA_FILE = "samples.json"
 XRD_DATA_FILE = xrd_tools.XRD_DATA_FILE
@@ -625,7 +625,7 @@ class ExMaterialApp:
 
         processed_buttons = Frame(xrd)
         processed_buttons.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(8, 0))
-        Label(processed_buttons, text="处理：分别平滑归一化；d 轴按峰面积校正").pack(side=LEFT)
+        Label(processed_buttons, text="处理：分别平滑归一化，保持原始强度关系").pack(side=LEFT)
         Button(processed_buttons, text="手动寻峰/修正", command=self.open_manual_peak_window).pack(side=LEFT, padx=(10, 0))
         Button(processed_buttons, text="生成处理后数据", command=self.generate_processed_xrd_data).pack(side=RIGHT)
         Button(processed_buttons, text="画处理后图", command=self.plot_processed_xrd_current).pack(side=RIGHT, padx=(0, 8))

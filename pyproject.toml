@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "exmaterial"
-version = "1.0.0"
+version = "1.0.1"
 description = "A Windows desktop app for material-sample records, XRD processing, and thermal-conductivity plots."
 readme = "README.md"
 requires-python = ">=3.10"

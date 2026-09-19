@@ -327,19 +327,6 @@ def enforce_processed_scale(rows: list[tuple[float, float, float]], sort_axis: s
     return clamp_processed_intensities(normalize_intensities(sorted_finite_rows(rows, sort_axis)))
 
 
-def d_axis_intensity_density(rows: list[tuple[float, float, float]]) -> list[tuple[float, float, float]]:
-    """Convert counts per 2theta degree to an area-preserving intensity per d spacing."""
-    corrected: list[tuple[float, float, float]] = []
-    for two_theta, intensity, d_value in rows:
-        theta_radians = math.radians(two_theta / 2)
-        cosine = math.cos(theta_radians)
-        if d_value <= 0 or cosine <= 1e-12:
-            continue
-        degree_per_angstrom = 360 / math.pi * math.tan(theta_radians) / d_value
-        corrected.append((two_theta, intensity * degree_per_angstrom, d_value))
-    return corrected
-
-
 def normalize_intensities_with_reference(
     rows: list[tuple[float, float, float]],
     reference_rows: list[tuple[float, float, float]],
@@ -387,11 +374,10 @@ def finalize_processed_rows(rows: list[tuple[float, float, float]], sort_axis: s
 
 
 def process_xrd_rows(rows: list[tuple[float, float, float]], sort_axis: str = "theta") -> list[tuple[float, float, float]]:
+    """Smooth and normalize one input axis without changing its peak intensities."""
     clean_rows = sorted_finite_rows(rows, sort_axis)
     if not clean_rows:
         return []
-    if sort_axis == "d":
-        clean_rows = d_axis_intensity_density(clean_rows)
     normalized = normalize_intensities(clean_rows)
     smoothed_rows = coordinate_aware_smooth(normalized)
     return enforce_processed_scale(smoothed_rows, sort_axis)

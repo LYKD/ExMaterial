@@ -40,10 +40,27 @@ class XrdToolsTests(unittest.TestCase):
         self.assertGreaterEqual(min(intensities), 0.0)
         self.assertTrue(all(math.isfinite(value) for value in intensities))
 
+    def test_processed_d_preserves_peak_intensities_from_d_input(self) -> None:
+        theta_rows, _ = xrd_tools.parse_xrd_text(
+            "10 100\n20 50\n30 12\n40 18\n50 8\n60 3\n70 1\n80 3\n90 1\n100 1",
+            "1.5406",
+        )
+        d_rows, _ = xrd_tools.parse_xrd_axis_text(
+            xrd_tools.rows_to_d_text(theta_rows),
+            "1.5406",
+            "d",
+        )
+        processed_theta = xrd_tools.process_xrd_rows(theta_rows, "theta")
+        processed_d = xrd_tools.process_xrd_rows(d_rows, "d")
+        self.assertEqual(len(processed_theta), len(processed_d))
+        for theta_row, d_row in zip(sorted(processed_theta), sorted(processed_d)):
+            self.assertAlmostEqual(theta_row[0], d_row[0], places=6)
+            self.assertAlmostEqual(theta_row[1], d_row[1], places=6)
+
 
 class VersionTests(unittest.TestCase):
     def test_public_release_version(self) -> None:
-        self.assertEqual(__version__, "1.0.0")
+        self.assertEqual(__version__, "1.0.1")
 
 
 if __name__ == "__main__":

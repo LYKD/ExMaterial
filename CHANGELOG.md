@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [1.0.1] - 2026-09-20
+
+### Fixed
+
+- Kept processed d-axis XRD intensities on the original input scale before smoothing and normalization, so their peak/valley relationship is not distorted by a coordinate-dependent intensity correction.
+
 ## [1.0.0] - 2026-09-19
 
 ### Added
