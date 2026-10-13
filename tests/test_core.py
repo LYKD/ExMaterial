@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
+import tempfile
 import unittest
+from pathlib import Path
 
 from exmaterial import __version__
 from exmaterial import thermal_tools, xrd_tools
@@ -57,10 +59,97 @@ class XrdToolsTests(unittest.TestCase):
             self.assertAlmostEqual(theta_row[0], d_row[0], places=6)
             self.assertAlmostEqual(theta_row[1], d_row[1], places=6)
 
+    def test_shape_preserving_interpolation_does_not_invent_peak_heights(self) -> None:
+        source = [(0.0, 98.0), (1.0, 100.0), (2.0, 99.0), (3.0, 20.0)]
+        curve = xrd_tools.cubic_spline_interpolate(source, 200)
+
+        self.assertEqual(max(intensity for _x, intensity in curve), 100.0)
+        for x_value, intensity in source:
+            self.assertIn((x_value, intensity), curve)
+
+    def test_processed_d_curve_breaks_at_missing_acquisition_interval(self) -> None:
+        rows = [
+            (10.00, 10.0, 8.0),
+            (10.02, 20.0, 7.9),
+            (10.04, 98.00848, 7.8),
+            (10.40, 100.0, 7.0),
+            (10.42, 15.0, 6.9),
+        ]
+        curve = xrd_tools.processed_curve_points(rows, "d", 600)
+        breaks = [
+            index
+            for index, (x_value, y_value) in enumerate(curve)
+            if not math.isfinite(x_value) or not math.isfinite(y_value)
+        ]
+
+        self.assertEqual(len(breaks), 1)
+        finite_curve = [(x_value, y_value) for x_value, y_value in curve if math.isfinite(x_value)]
+        self.assertEqual(max(y_value for _x_value, y_value in finite_curve), 100.0)
+        self.assertEqual(sum(y_value == 100.0 for _x_value, y_value in finite_curve), 1)
+        self.assertFalse(any(7.0 < x_value < 7.8 for x_value, y_value in curve if math.isfinite(x_value)))
+
+        class RecordingCanvas:
+            def __init__(self) -> None:
+                self.blue_lines = 0
+
+            def delete(self, *_args) -> None:
+                pass
+
+            def winfo_width(self) -> int:
+                return 700
+
+            def winfo_height(self) -> int:
+                return 400
+
+            def create_text(self, *_args, **_kwargs) -> None:
+                pass
+
+            def create_line(self, *_args, **kwargs) -> None:
+                if kwargs.get("fill") == "#1f77b4":
+                    self.blue_lines += 1
+
+            def create_oval(self, *_args, **_kwargs) -> None:
+                pass
+
+        canvas = RecordingCanvas()
+        config = xrd_tools.processed_plot_config(curve, "d", 600, (9.0, 1.0))
+        from exmaterial.plot_viewer import IMAGE_MARGIN, draw_scatter_plot, save_scatter_jpg
+
+        draw_scatter_plot(canvas, **config)
+        self.assertEqual(canvas.blue_lines, 2)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            jpg_path = Path(temp_dir) / "processed_xrd_d.jpg"
+            save_scatter_jpg(
+                jpg_path,
+                curve,
+                "XRD 处理后: d",
+                "d (Å)",
+                "强度",
+                (9.0, 1.0),
+                1,
+                y_limits=(0, 100),
+                connect_points=True,
+                point_radius=0,
+            )
+            from PIL import Image
+
+            with Image.open(jpg_path) as image:
+                image = image.convert("RGB")
+                gap_midpoint = (7.0 + 7.8) / 2
+                x_min, x_max = 9.0, 1.0
+                margin_left, margin_right, margin_top, margin_bottom = IMAGE_MARGIN
+                pixel_x = round(
+                    margin_left
+                    + (gap_midpoint - x_min) / (x_max - x_min) * (image.width - margin_left - margin_right)
+                )
+                gap_column = [image.getpixel((pixel_x, y)) for y in range(margin_top, image.height - margin_bottom)]
+                self.assertFalse(any(blue > red * 1.25 and red < 180 for red, _green, blue in gap_column))
+
 
 class VersionTests(unittest.TestCase):
     def test_public_release_version(self) -> None:
-        self.assertEqual(__version__, "1.0.1")
+        self.assertEqual(__version__, "1.0.2")
 
 
 if __name__ == "__main__":

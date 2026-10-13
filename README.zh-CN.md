@@ -19,8 +19,11 @@
 - 导入、转换、处理、绘制和对比 `2θ` 与 `d` 坐标下的 XRD 数据。
 - 提供处理后 XRD 的归一化、平滑、手动寻峰、局部高斯修正和独立图窗查看。
 - 将样品数据和生成图自动保存在本机 `information/` 目录。
+- 启动时后台检查正式版更新，也可通过“帮助 → 检查更新”手动检查；Windows EXE 版支持下载、校验并重启更新。
 
 ## 安装与运行
+
+免安装 Windows x64 版：[下载 ExMaterial 1.0.2](https://github.com/LYKD/ExMaterial/releases/download/v1.0.2/ExMaterial-1.0.2-windows-x64.exe)。本次修改详见 [发布说明](https://github.com/LYKD/ExMaterial/releases/tag/v1.0.2) 和 [更新日志](CHANGELOG.md)。v1.0.1 及更早版本需手动升级这一次，随后即可使用软件内更新。将下载的 EXE 放回原程序目录，保留同级 information 数据目录。
 
 支持 Windows 上的 Python 3.10 或更高版本：
 
@@ -43,6 +46,14 @@ python -m pip install ".[build]"
 构建后可执行文件为 `exmaterial\ExMaterial.exe`。移动已有工作区时，请让 `information/` 继续与 `exmaterial/` 目录保持同级。
 
 详细使用说明、单位和数据文件说明见 [中文用户手册](exmaterial/readme.txt)。
+
+## 软件更新
+
+发现新版本后，点击“下载并重启更新”。下载完成后确认编辑内容已保存，程序会退出、替换自身并启动新版。更新只替换当前 EXE，`information/` 数据目录继续保留；新版启动失败时会尝试恢复旧程序。网络不可用时仍可正常使用软件，并可通过更新窗口打开发布页手动下载。
+
+此前没有更新功能的旧 EXE 需要先手动下载一次包含此功能的版本；此后可在软件内更新。源码运行方式仅提供检查和发布页入口。
+
+发布维护要求：正式 Release 使用 `v主版本.次版本.补丁版本` 标签，附带 `ExMaterial-版本-windows-x64.exe`（或 `ExMaterial.exe`），并确保 GitHub 资产提供 SHA-256 `digest`。缺少可校验 EXE 时软件提供手动下载入口。源码版本和程序显示版本来自同一版本定义，发布时须同步更新 `exmaterial/__init__.py` 和 `pyproject.toml`。
 
 ## 许可证
 

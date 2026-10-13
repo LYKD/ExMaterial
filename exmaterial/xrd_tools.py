@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import math
 import re
+import statistics
 from bisect import bisect_right
 from pathlib import Path
 from tkinter import BOTH, END, LEFT, RIGHT, Y, Button, Canvas, Entry, Frame, Label, LabelFrame, Listbox, Scrollbar, StringVar, Toplevel, filedialog, messagebox, ttk
@@ -29,10 +30,27 @@ MAX_PROCESSED_CANVAS_POINTS = 8000
 
 
 def downsample_points(points: list[tuple[float, float]], max_points: int = MAX_PLOT_POINTS) -> list[tuple[float, float]]:
-    if len(points) <= max_points:
+    finite_count = sum(math.isfinite(x_value) and math.isfinite(y_value) for x_value, y_value in points)
+    if finite_count <= max_points:
         return points
     step = math.ceil(len(points) / max_points)
-    return points[::step]
+    sampled: list[tuple[float, float]] = []
+    segment: list[tuple[float, float]] = []
+    for point in points:
+        if math.isfinite(point[0]) and math.isfinite(point[1]):
+            segment.append(point)
+            continue
+        if segment:
+            sampled.extend(segment[::step])
+            if sampled[-1] != segment[-1]:
+                sampled.append(segment[-1])
+            segment = []
+        sampled.append((math.nan, math.nan))
+    if segment:
+        sampled.extend(segment[::step])
+        if sampled[-1] != segment[-1]:
+            sampled.append(segment[-1])
+    return sampled
 
 
 def extract_numbers(line: str) -> list[float]:
@@ -407,7 +425,7 @@ def d_plot_limits(rows: list[tuple[float, float, float]]) -> tuple[float, float]
 
 
 def cubic_spline_interpolate(points: list[tuple[float, float]], target_count: int) -> list[tuple[float, float]]:
-    """Return a natural cubic spline with continuous curvature between processed points."""
+    """Return a shape-preserving cubic interpolation without creating new extrema."""
     ordered = sorted((x_value, y_value) for x_value, y_value in points if math.isfinite(x_value) and math.isfinite(y_value))
     if len(ordered) < 2:
         return ordered
@@ -425,46 +443,89 @@ def cubic_spline_interpolate(points: list[tuple[float, float]], target_count: in
     if len(x_values) < 3 or x_values[0] == x_values[-1]:
         return list(zip(x_values, y_values))
     intervals = [right - left for left, right in zip(x_values, x_values[1:])]
-    alpha = [0.0] * len(x_values)
+    secants = [(right - left) / width for left, right, width in zip(y_values, y_values[1:], intervals)]
+    slopes = [0.0] * len(x_values)
+
+    def endpoint_slope(first_width: float, second_width: float, first_secant: float, second_secant: float) -> float:
+        slope = ((2 * first_width + second_width) * first_secant - first_width * second_secant) / (first_width + second_width)
+        if slope * first_secant <= 0:
+            return 0.0
+        if first_secant * second_secant < 0 and abs(slope) > 3 * abs(first_secant):
+            return 3 * first_secant
+        return slope
+
+    slopes[0] = endpoint_slope(intervals[0], intervals[1], secants[0], secants[1])
+    slopes[-1] = endpoint_slope(intervals[-1], intervals[-2], secants[-1], secants[-2])
     for index in range(1, len(x_values) - 1):
-        alpha[index] = 3 * ((y_values[index + 1] - y_values[index]) / intervals[index] - (y_values[index] - y_values[index - 1]) / intervals[index - 1])
-    lower = [1.0] + [0.0] * (len(x_values) - 1)
-    upper = [0.0] * len(x_values)
-    temporary = [0.0] * len(x_values)
-    for index in range(1, len(x_values) - 1):
-        lower[index] = 2 * (x_values[index + 1] - x_values[index - 1]) - intervals[index - 1] * upper[index - 1]
-        if abs(lower[index]) < 1e-12:
-            return list(zip(x_values, y_values))
-        upper[index] = intervals[index] / lower[index]
-        temporary[index] = (alpha[index] - intervals[index - 1] * temporary[index - 1]) / lower[index]
-    coefficients_c = [0.0] * len(x_values)
-    coefficients_b = [0.0] * (len(x_values) - 1)
-    coefficients_d = [0.0] * (len(x_values) - 1)
-    for index in range(len(x_values) - 2, -1, -1):
-        coefficients_c[index] = temporary[index] - upper[index] * coefficients_c[index + 1]
-        coefficients_b[index] = (y_values[index + 1] - y_values[index]) / intervals[index] - intervals[index] * (coefficients_c[index + 1] + 2 * coefficients_c[index]) / 3
-        coefficients_d[index] = (coefficients_c[index + 1] - coefficients_c[index]) / (3 * intervals[index])
-    target_count = max(2, target_count)
-    queries = [
-        x_values[0] + (x_values[-1] - x_values[0]) * index / (target_count - 1)
-        for index in range(target_count)
-    ]
-    output: list[tuple[float, float]] = []
-    interval_index = 0
-    for query in queries:
-        while interval_index < len(intervals) - 1 and query > x_values[interval_index + 1]:
-            interval_index += 1
-        offset = query - x_values[interval_index]
-        output.append(
-            (
-                query,
-                y_values[interval_index]
-                + coefficients_b[interval_index] * offset
-                + coefficients_c[interval_index] * offset * offset
-                + coefficients_d[interval_index] * offset * offset * offset,
-            )
+        previous_secant = secants[index - 1]
+        next_secant = secants[index]
+        if previous_secant * next_secant <= 0:
+            slopes[index] = 0.0
+            continue
+        previous_width = intervals[index - 1]
+        next_width = intervals[index]
+        weight_previous = 2 * next_width + previous_width
+        weight_next = next_width + 2 * previous_width
+        slopes[index] = (weight_previous + weight_next) / (
+            weight_previous / previous_secant + weight_next / next_secant
         )
+
+    target_count = max(len(x_values), target_count)
+    extra_points = target_count - len(x_values)
+    interval_count = len(intervals)
+    output: list[tuple[float, float]] = []
+    for index, width in enumerate(intervals):
+        extras_before = index * extra_points // interval_count
+        extras_after = (index + 1) * extra_points // interval_count
+        subdivisions = extras_after - extras_before + 1
+        left_y = y_values[index]
+        right_y = y_values[index + 1]
+        for subdivision in range(subdivisions):
+            fraction = subdivision / subdivisions
+            fraction_squared = fraction * fraction
+            fraction_cubed = fraction_squared * fraction
+            value = (
+                (2 * fraction_cubed - 3 * fraction_squared + 1) * left_y
+                + (fraction_cubed - 2 * fraction_squared + fraction) * width * slopes[index]
+                + (-2 * fraction_cubed + 3 * fraction_squared) * right_y
+                + (fraction_cubed - fraction_squared) * width * slopes[index + 1]
+            )
+            bounded_value = min(max(value, min(left_y, right_y)), max(left_y, right_y))
+            output.append((x_values[index] + fraction * width, bounded_value))
+    output.append((x_values[-1], y_values[-1]))
     return output
+
+
+def _processed_row_segments(
+    rows: list[tuple[float, float, float]], axis_kind: str, gap_factor: float = 3.0
+) -> list[list[tuple[float, float]]]:
+    """Split plot rows where the acquisition coordinate has an unusually large gap."""
+    use_d_axis = axis_kind == "d"
+    ordered_rows = sorted_finite_rows(rows, "d" if use_d_axis else "theta")
+    if use_d_axis:
+        ordered_rows.reverse()
+    if not ordered_rows:
+        return []
+
+    acquisition_gaps = [abs(right[0] - left[0]) for left, right in zip(ordered_rows, ordered_rows[1:])]
+    segments: list[list[tuple[float, float]]] = [[]]
+    for index, row in enumerate(ordered_rows):
+        x_value = row[2] if use_d_axis else row[0]
+        segments[-1].append((x_value, row[1]))
+        if index >= len(acquisition_gaps):
+            continue
+        gap = acquisition_gaps[index]
+        nearby_gaps = [
+            candidate
+            for candidate_index, candidate in enumerate(acquisition_gaps)
+            if candidate_index != index and abs(candidate_index - index) <= 5 and candidate > 1e-12
+        ]
+        comparison_gaps = nearby_gaps or [
+            candidate for candidate_index, candidate in enumerate(acquisition_gaps) if candidate_index != index and candidate > 1e-12
+        ]
+        if comparison_gaps and gap > statistics.median(comparison_gaps) * gap_factor:
+            segments.append([])
+    return [segment for segment in segments if segment]
 
 
 def processed_curve_points(
@@ -472,12 +533,32 @@ def processed_curve_points(
     axis_kind: str,
     max_points: int = MAX_PROCESSED_CANVAS_POINTS,
 ) -> list[tuple[float, float]]:
-    points = processed_plot_points(rows, axis_kind)
-    target_count = min(max_points, max(600, len(points) * 4))
-    curve = cubic_spline_interpolate(points, target_count)
+    segments = _processed_row_segments(rows, axis_kind)
+    point_count = sum(len(segment) for segment in segments)
+    target_count = min(max(max_points, point_count), max(600, point_count * 4))
+    total_intervals = sum(max(0, len(segment) - 1) for segment in segments)
+    extra_points = max(0, target_count - point_count)
+    curve: list[tuple[float, float]] = []
+    intervals_before = 0
+    for segment_index, segment in enumerate(segments):
+        interval_count = max(0, len(segment) - 1)
+        if segment_index:
+            curve.append((math.nan, math.nan))
+        if interval_count == 0:
+            curve.extend(segment)
+            continue
+        extras_before = intervals_before * extra_points // max(total_intervals, 1)
+        intervals_before += interval_count
+        extras_after = intervals_before * extra_points // max(total_intervals, 1)
+        curve.extend(cubic_spline_interpolate(segment, len(segment) + extras_after - extras_before))
     if axis_kind == "d":
         curve.reverse()
-    return [(x_value, min(max(y_value, 0.0), 100.0)) for x_value, y_value in curve]
+    return [
+        (x_value, min(max(y_value, 0.0), 100.0))
+        if math.isfinite(x_value) and math.isfinite(y_value)
+        else (math.nan, math.nan)
+        for x_value, y_value in curve
+    ]
 
 
 def processed_plot_config(

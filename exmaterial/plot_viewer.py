@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from tkinter import BOTH, LEFT, Button, Canvas, Frame, Label, StringVar, Tk, Toplevel
 
@@ -38,8 +39,9 @@ def plot_bounds(
     if y_limits is not None:
         y_min, y_max = y_limits
         return x_min, x_max, y_min, y_max
-    visible_ys = [point[1] for point in points if min(x_min, x_max) <= point[0] <= max(x_min, x_max)]
-    ys = visible_ys or [point[1] for point in points] or [0, 1]
+    finite_points = [point for point in points if math.isfinite(point[0]) and math.isfinite(point[1])]
+    visible_ys = [point[1] for point in finite_points if min(x_min, x_max) <= point[0] <= max(x_min, x_max)]
+    ys = visible_ys or [point[1] for point in finite_points] or [0, 1]
     y_min, y_max = min(ys), max(ys)
     if y_min == y_max:
         y_min -= 1
@@ -56,7 +58,33 @@ def clamp_value(value: float, limits: tuple[float, float]) -> float:
 def clamp_points_to_y_limits(points: list[tuple[float, float]], y_limits: tuple[float, float] | None) -> list[tuple[float, float]]:
     if y_limits is None:
         return points
-    return [(x_value, clamp_value(y_value, y_limits)) for x_value, y_value in points]
+    return [
+        (x_value, clamp_value(y_value, y_limits))
+        if math.isfinite(x_value) and math.isfinite(y_value)
+        else (math.nan, math.nan)
+        for x_value, y_value in points
+    ]
+
+
+def _screen_line_segments(
+    points: list[tuple[float, float]],
+    sx,
+    sy,
+    x_limits: tuple[float, float],
+) -> list[list[tuple[float, float]]]:
+    segments: list[list[tuple[float, float]]] = []
+    current: list[tuple[float, float]] = []
+    x_min, x_max = min(x_limits), max(x_limits)
+    for x_value, y_value in points:
+        if not math.isfinite(x_value) or not math.isfinite(y_value) or not x_min <= x_value <= x_max:
+            if current:
+                segments.append(current)
+                current = []
+            continue
+        current.append((sx(x_value), sy(y_value)))
+    if current:
+        segments.append(current)
+    return segments
 
 
 def _screen_functions(
@@ -119,16 +147,23 @@ def draw_scatter_plot(
         canvas.create_line(margin_left - 4, y_pos, margin_left, y_pos, fill="#222222")
         canvas.create_text(margin_left - 10, y_pos, text=f"{y_value:.3g}", anchor="e", font=("Arial", 8))
     canvas.create_text(width / 2, height - 10, text=xlabel, font=("Arial", 9))
-    visible_points = [(sx(x_value), sy(y_value)) for x_value, y_value in points if min(x_min, x_max) <= x_value <= max(x_min, x_max)]
-    if connect_points and len(visible_points) >= 2:
-        line_points = smooth_screen_points(visible_points) if smooth_line else visible_points
-        coords = []
-        for x_pos, y_pos in line_points:
-            coords.extend([x_pos, y_pos])
-        canvas.create_line(*coords, fill="#1f77b4", width=2)
+    visible_segments = _screen_line_segments(points, sx, sy, x_limits)
+    if connect_points:
+        for visible_points in visible_segments:
+            if len(visible_points) < 2:
+                continue
+            line_points = smooth_screen_points(visible_points) if smooth_line else visible_points
+            coords = []
+            for x_pos, y_pos in line_points:
+                coords.extend([x_pos, y_pos])
+            canvas.create_line(*coords, fill="#1f77b4", width=2)
     if point_radius > 0:
         for x_value, y_value in points:
-            if min(x_min, x_max) <= x_value <= max(x_min, x_max):
+            if (
+                math.isfinite(x_value)
+                and math.isfinite(y_value)
+                and min(x_min, x_max) <= x_value <= max(x_min, x_max)
+            ):
                 x_pos = sx(x_value)
                 y_pos = sy(y_value)
                 canvas.create_oval(x_pos - point_radius, y_pos - point_radius, x_pos + point_radius, y_pos + point_radius, fill=point_color, outline="")
@@ -180,12 +215,18 @@ def render_scatter_image(
         draw.line((margin_left - 8, y_pos, margin_left, y_pos), fill="#222222")
         draw.text((12, y_pos - 8), f"{y_value:.4g}", fill="#000000")
     draw.text((width / 2 - 36, height - 44), xlabel, fill="#000000")
-    visible_points = [(sx(x_value), sy(y_value)) for x_value, y_value in points if min(x_min, x_max) <= x_value <= max(x_min, x_max)]
-    if connect_points and len(visible_points) >= 2:
-        draw.line(smooth_screen_points(visible_points) if smooth_line else visible_points, fill="#1f77b4", width=3)
+    visible_segments = _screen_line_segments(points, sx, sy, x_limits)
+    if connect_points:
+        for visible_points in visible_segments:
+            if len(visible_points) >= 2:
+                draw.line(smooth_screen_points(visible_points) if smooth_line else visible_points, fill="#1f77b4", width=3)
     if point_radius > 0:
         for x_value, y_value in points:
-            if min(x_min, x_max) <= x_value <= max(x_min, x_max):
+            if (
+                math.isfinite(x_value)
+                and math.isfinite(y_value)
+                and min(x_min, x_max) <= x_value <= max(x_min, x_max)
+            ):
                 x_pos = sx(x_value)
                 y_pos = sy(y_value)
                 draw.ellipse((x_pos - point_radius, y_pos - point_radius, x_pos + point_radius, y_pos + point_radius), fill=point_color)

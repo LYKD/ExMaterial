@@ -31,18 +31,23 @@ from tkinter import (
 from tkinter import messagebox, simpledialog, ttk
 
 try:
-    from . import thermal_tools, xrd_tools
+    from . import __version__, thermal_tools, xrd_tools
+    from . import updates
+    from .update_ui import UpdateManager
     from .plot_viewer import PlotViewer as GenericPlotViewer
     from .plot_viewer import draw_scatter_plot, save_scatter_jpg
 except ImportError:  # Supports launching this file directly from its source folder.
+    from __init__ import __version__
     import thermal_tools
     import xrd_tools
+    import updates
+    from update_ui import UpdateManager
     from plot_viewer import PlotViewer as GenericPlotViewer
     from plot_viewer import draw_scatter_plot, save_scatter_jpg
 
 
 APP_NAME = "ExMaterial"
-APP_VERSION = "1.0.1"
+APP_VERSION = __version__
 APP_TITLE = f"{APP_NAME} {APP_VERSION} · 样品记录"
 DATA_FILE = "samples.json"
 XRD_DATA_FILE = xrd_tools.XRD_DATA_FILE
@@ -122,11 +127,24 @@ def bind_mousewheel(widget, y_target=None, x_target=None) -> None:
     widget.bind("<Shift-MouseWheel>", scroll_x)
 
 
-def bind_mousewheel_tree(widget, y_target) -> None:
-    if not isinstance(widget, (Text, Listbox, Canvas, Scrollbar)):
-        bind_mousewheel(widget, y_target)
-    for child in widget.winfo_children():
-        bind_mousewheel_tree(child, y_target)
+def bind_editor_mousewheel(editor, y_target) -> None:
+    """Scroll the editor over plots and fields, including fields added later."""
+    def scroll_editor(event):
+        widget = event.widget
+        while widget is not None:
+            if widget == editor:
+                steps = mousewheel_steps(event)
+                if steps:
+                    y_target.yview_scroll(steps, "units")
+                return "break"
+            widget = widget.master
+        return None
+
+    # Toplevel bindings also receive events from dynamically created children.
+    # Text/listbox widget bindings consume their own scrolling first.
+    window = editor.winfo_toplevel()
+    for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        window.bind(sequence, scroll_editor, add="+")
 
 
 def split_obtained_time(data: dict) -> tuple[str, str, str, str]:
@@ -459,8 +477,10 @@ class ExMaterialApp:
         self.plot_configs: dict[str, dict] = {}
         self.last_sample_density = ""
         self.status = StringVar()
+        self.updater = UpdateManager(root, APP_VERSION)
         self.build_ui()
         self.refresh_materials()
+        self.root.after(1500, lambda: self.updater.check(manual=False))
 
     def build_ui(self) -> None:
         self.root.title(APP_TITLE)
@@ -474,32 +494,36 @@ class ExMaterialApp:
         materials = Frame(main)
         materials.pack(side=LEFT, fill=Y, padx=(0, 12))
         Label(materials, text="材料文件夹").pack(anchor="w")
+        material_buttons = Frame(materials)
+        material_buttons.pack(fill="x", pady=(4, 8))
+        Button(material_buttons, text="新建文件夹", command=self.create_material).pack(side=LEFT, fill="x", expand=True)
+        Button(material_buttons, text="删除", command=self.delete_material).pack(side=LEFT, fill="x", expand=True, padx=(8, 0))
         self.material_list = self.listbox_with_scrollbar(materials, width=22)
         self.material_list.bind("<<ListboxSelect>>", self.on_material_select)
-        Button(materials, text="新建材料文件夹", command=self.create_material).pack(fill="x", pady=(8, 0))
-        Button(materials, text="删除材料文件夹", command=self.delete_material).pack(fill="x", pady=(8, 0))
 
         samples = Frame(main)
         samples.pack(side=LEFT, fill=Y, padx=(0, 12))
         Label(samples, text="样品").pack(anchor="w")
+        sample_buttons = Frame(samples)
+        sample_buttons.pack(fill="x", pady=(4, 8))
+        Button(sample_buttons, text="+ 新增样品", command=self.add_sample).pack(side=LEFT, fill="x", expand=True)
+        Button(sample_buttons, text="- 删除", command=self.delete_sample).pack(side=LEFT, fill="x", expand=True, padx=(8, 0))
         self.sample_list = self.listbox_with_scrollbar(samples, width=24)
         self.sample_list.bind("<<ListboxSelect>>", self.on_sample_select)
-        sample_buttons = Frame(samples)
-        sample_buttons.pack(fill="x", pady=(8, 0))
-        Button(sample_buttons, text="+", command=self.add_sample).pack(side=LEFT, fill="x", expand=True)
-        Button(sample_buttons, text="- 删除", command=self.delete_sample).pack(side=LEFT, fill="x", expand=True, padx=(8, 0))
 
         editor_canvas = Canvas(main, highlightthickness=0)
+        self.editor_canvas = editor_canvas
         editor_canvas.pack(side=LEFT, fill=BOTH, expand=True)
         editor_scroll = Scrollbar(main, command=editor_canvas.yview)
         editor_scroll.pack(side=RIGHT, fill=Y)
         editor_canvas.configure(yscrollcommand=editor_scroll.set)
         editor = Frame(editor_canvas)
+        self.editor = editor
         editor_window = editor_canvas.create_window((0, 0), window=editor, anchor="nw")
         editor.bind("<Configure>", lambda _event: editor_canvas.configure(scrollregion=editor_canvas.bbox("all")))
         editor_canvas.bind("<Configure>", lambda event: editor_canvas.itemconfigure(editor_window, width=event.width))
         bind_mousewheel(editor_canvas, editor_canvas)
-        bind_mousewheel(editor, editor_canvas)
+        bind_mousewheel(editor_scroll, editor_canvas)
 
         info = LabelFrame(editor, text="样品信息", padx=10, pady=8)
         info.pack(fill="x")
@@ -675,7 +699,7 @@ class ExMaterialApp:
         self.processed_plot_d.pack(side=LEFT, fill=BOTH, expand=True)
         self.processed_plot_d.bind("<Double-Button-1>", lambda _event: self.open_plot_viewer("processed_d"))
 
-        bind_mousewheel_tree(editor, editor_canvas)
+        bind_editor_mousewheel(editor, editor_canvas)
         Label(self.root, textvariable=self.status, anchor="w", relief="sunken").pack(fill="x")
 
     def build_menu(self) -> None:
@@ -683,6 +707,9 @@ class ExMaterialApp:
         function_menu = Menu(menubar, tearoff=0)
         function_menu.add_command(label="对比", command=self.open_compare_window)
         menubar.add_cascade(label="功能", menu=function_menu)
+        help_menu = Menu(menubar, tearoff=0)
+        help_menu.add_command(label="检查更新…", command=self.updater.check)
+        menubar.add_cascade(label="帮助", menu=help_menu)
         self.root.config(menu=menubar)
 
     def open_compare_window(self) -> None:
@@ -921,6 +948,7 @@ class ExMaterialApp:
     def show_thermal_plot(self) -> None:
         if not self.thermal_plot_panel.winfo_ismapped():
             self.thermal_plot_panel.pack(fill=BOTH, expand=True, pady=(6, 0))
+        self.scroll_to_section(self.thermal_plot_panel)
 
     def hide_thermal_plot(self) -> None:
         self.thermal_plot_panel.pack_forget()
@@ -1555,9 +1583,26 @@ class ExMaterialApp:
             return
         self.set_status(f"已保存处理后 XRD 数据和 0-100 平滑线图，不覆盖原始 XRD：{folder}")
 
+    def scroll_to_section(self, section) -> None:
+        def reveal():
+            if not section.winfo_exists() or not section.winfo_manager():
+                return
+            # Wait for newly packed plots to acquire their final position/size.
+            self.root.update_idletasks()
+            bounds = self.editor_canvas.bbox("all")
+            if bounds is None or bounds[3] <= bounds[1]:
+                return
+            self.editor_canvas.configure(scrollregion=bounds)
+            top = section.winfo_rooty() - self.editor.winfo_rooty() - 12
+            fraction = (top - bounds[1]) / (bounds[3] - bounds[1])
+            self.editor_canvas.yview_moveto(max(0.0, min(1.0, fraction)))
+
+        self.root.after_idle(reveal)
+
     def show_plots(self) -> None:
         if not self.plot_panel.winfo_ismapped():
             self.plot_panel.pack(fill=BOTH, expand=True, pady=(10, 0))
+        self.scroll_to_section(self.plot_panel)
 
     def hide_plots(self) -> None:
         self.plot_panel.pack_forget()
@@ -1569,6 +1614,7 @@ class ExMaterialApp:
     def show_processed_plots(self) -> None:
         if not self.processed_plot_panel.winfo_ismapped():
             self.processed_plot_panel.pack(fill=BOTH, expand=True, pady=(10, 0))
+        self.scroll_to_section(self.processed_plot_panel)
 
     def hide_processed_plots(self) -> None:
         self.processed_plot_panel.pack_forget()
@@ -1610,6 +1656,8 @@ def main() -> None:
     except Exception:
         pass
     ExMaterialApp(root)
+    root.update_idletasks()
+    updates.confirm_update_startup(sys.argv[1:])
     root.mainloop()
 
 
