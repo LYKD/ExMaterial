@@ -17,6 +17,7 @@
 - Creates material families and numbered samples, each with acquisition conditions and notes.
 - Stores multi-temperature thermal measurements and calculates thermal conductivity from density, heat capacity, and diffusivity.
 - Imports, converts, processes, plots, and compares XRD data in `2θ` and `d` coordinates.
+- Drop exported XRD text files onto the main window to create one sample per file in the selected material; original filenames are recorded in sample notes. Drop onto the raw `d` input to import `d` coordinates.
 - Supports processed-XRD normalization, smoothing, manual peak capture, local Gaussian adjustments, and independent plot viewing.
 - Writes every sample's data and generated figures to a local `information/` directory.
 - Checks stable GitHub releases in the background and supports verified in-app updates for the Windows executable.

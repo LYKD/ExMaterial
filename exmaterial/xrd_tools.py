@@ -54,9 +54,30 @@ def downsample_points(points: list[tuple[float, float]], max_points: int = MAX_P
 
 
 def extract_numbers(line: str) -> list[float]:
-    normalized = line.replace(",", " ").replace(";", " ").replace("\t", " ")
-    matches = re.findall(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", normalized)
-    return [float(item) for item in matches]
+    # Accept numeric columns only, never numbers embedded in instrument metadata.
+    tokens = [token.strip('"') for token in re.split(r"[,;\s]+", line.lstrip("\ufeff").strip())]
+    number = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+    if any(re.fullmatch(number, token) is None for token in tokens):
+        return []
+    values = [float(token) for token in tokens]
+    return values if all(math.isfinite(value) for value in values) else []
+
+
+def read_xrd_file(path: Path) -> str:
+    """Read an exported text scan; binary instrument formats need a text export."""
+    if path.suffix.lower() not in {".txt", ".csv", ".tsv", ".xy", ".dat"}:
+        raise ValueError("请导入 TXT、CSV、TSV、XY 或 DAT 文本文件；RAW 等仪器二进制文件请先导出为文本。")
+    data = path.read_bytes()
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        text = data.decode("utf-16")
+    else:
+        try:
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = data.decode("gb18030")
+    if "\x00" in text:
+        raise ValueError("文件包含二进制内容，请先导出为文本 XRD 数据。")
+    return text
 
 
 def infer_xrd_columns(numeric_rows: list[tuple[int, list[float]]]) -> tuple[int, int]:
