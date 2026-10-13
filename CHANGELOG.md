@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Drag one or more exported XRD text files into the main window to create new samples in the selected material, with source filenames in sample notes. Drop onto the raw d input to use d coordinates.
+- Bundle native TkDnD support in Windows executable builds.
+
+### Fixed
+
+- Skip instrument metadata such as `X-Ray 40kV/15mA` when parsing XRD text instead of turning it into a false `(40, 15)` data point.
+
 ## [1.0.2] - 2026-10-13
 
 ### 新增与改进

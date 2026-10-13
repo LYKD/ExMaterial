@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import csv
 import json
@@ -29,6 +29,7 @@ from tkinter import (
     Toplevel,
 )
 from tkinter import messagebox, simpledialog, ttk
+from tkinterdnd2 import COPY, DND_FILES, REFUSE_DROP, TkinterDnD
 
 try:
     from . import __version__, thermal_tools, xrd_tools
@@ -479,6 +480,7 @@ class ExMaterialApp:
         self.status = StringVar()
         self.updater = UpdateManager(root, APP_VERSION)
         self.build_ui()
+        self.bind_xrd_file_drop()
         self.refresh_materials()
         self.root.after(1500, lambda: self.updater.check(manual=False))
 
@@ -576,7 +578,7 @@ class ExMaterialApp:
         self.xrd_section = LabelFrame(editor, text="XRD 数据", padx=10, pady=8)
         xrd = self.xrd_section
         xrd.pack(fill=BOTH, expand=True, pady=(10, 0))
-        Label(xrd, text="原始数据在上，处理后数据在下；每个数据窗口右侧和底部都有滑动条。支持 txt、csv、制表符、空格、多列数据。").grid(
+        Label(xrd, text="可将 XRD 文本文件拖入主窗口，每个文件新建样品并在备注记录文件名；拖到原始 d 框按 d 导入。").grid(
             row=0,
             column=0,
             columnspan=3,
@@ -1195,6 +1197,50 @@ class ExMaterialApp:
             return "d", d_text
         return self.xrd_active_axis, ""
 
+    def bind_xrd_file_drop(self) -> None:
+        for widget, axis in ((self.root, "theta"), (self.xrd_theta_text, "theta"), (self.xrd_d_text, "d")):
+            widget.drop_target_register(DND_FILES)
+            widget.dnd_bind("<<Drop>>", lambda event, axis=axis: self.on_xrd_file_drop(event, axis))
+
+    def on_xrd_file_drop(self, event, axis_kind: str = "theta") -> str:
+        paths = self.root.tk.splitlist(event.data)
+        return COPY if self.import_xrd_files(paths, axis_kind) else REFUSE_DROP
+
+    def import_xrd_files(self, paths, axis_kind: str = "theta") -> bool:
+        if not self.current_material:
+            messagebox.showinfo("请先选择", "请先创建或选择一个材料文件夹，再拖入 XRD 文件。", parent=self.root)
+            return False
+        wavelength = self.fields["xrd_wavelength"].get().strip() or DEFAULT_WAVELENGTH
+        imported = []
+        failures = []
+        skipped_total = 0
+        for name in paths:
+            path = Path(name)
+            try:
+                rows, skipped = xrd_tools.parse_xrd_axis_text(
+                    xrd_tools.read_xrd_file(path), wavelength, axis_kind,
+                    self.theta_column.get(), self.intensity_column.get(),
+                )
+                sample = self.store.add_sample(self.current_material)
+                sample.xrd_wavelength = wavelength
+                sample.notes = f"XRD 来源文件：{path.name}"
+                self.store.update_sample(self.current_material, sample)
+                self.store.save_xrd_data(self.current_material, sample.number, rows)
+            except (OSError, ValueError) as exc:
+                failures.append(f"{path.name}: {exc}")
+                continue
+            imported.append(sample)
+            skipped_total += skipped
+        if imported:
+            # Keep the current editor, including unsaved edits, untouched.
+            self.refresh_samples(self.current_sample_number or imported[0].number)
+            if not self.current_sample_number:
+                self.load_sample(imported[0])
+            self.set_status(f"已导入 {len(imported)} 个文件为新样品，跳过 {skipped_total} 行非数据内容。文件名已写入备注。")
+        if failures:
+            messagebox.showwarning("部分文件未导入" if imported else "无法导入", "\n".join(failures), parent=self.root)
+        return bool(imported)
+
     def parse_current_xrd_rows(self) -> tuple[list[tuple[float, float, float]], int, str]:
         axis, text = self.selected_xrd_axis_and_text()
         if not text.strip():
@@ -1650,7 +1696,7 @@ class ExMaterialApp:
 
 
 def main() -> None:
-    root = Tk()
+    root = TkinterDnD.Tk()
     try:
         ttk.Style().theme_use("vista")
     except Exception:

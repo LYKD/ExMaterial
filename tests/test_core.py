@@ -34,6 +34,33 @@ class XrdToolsTests(unittest.TestCase):
         self.assertEqual([row[0] for row in rows], [10.0, 20.0, 30.0])
         self.assertEqual([row[1] for row in rows], [100.0, 200.0, 300.0])
 
+    def test_instrument_headers_cannot_become_diffraction_points(self) -> None:
+        text = (
+            "Goniometer\tMiniFlex 300/600\n"
+            "ScanningMode\t2Theta/Theta\n"
+            "X-Ray\t40kV/15mA\n"
+            "40kV/15mA\n"
+            "10\t7483.33\n39.98\t3200\n40\t3250\n40.02\t3300"
+        )
+        rows, skipped = xrd_tools.parse_xrd_text(text, "1.5406", "1", "2")
+        self.assertEqual(skipped, 4)
+        self.assertEqual([(theta, intensity) for theta, intensity, _d in rows],
+                         [(10, 7483.33), (39.98, 3200), (40, 3250), (40.02, 3300)])
+
+    def test_numeric_columns_scientific_notation_and_bom_still_parse(self) -> None:
+        rows, skipped = xrd_tools.parse_xrd_text(
+            '\ufeff1,1.0e1,7.5E+3\n2;2.0e1;3.0e3\n3\t30\t-2.5',
+            "1.5406", "2", "3",
+        )
+        self.assertEqual(skipped, 0)
+        self.assertEqual([(theta, intensity) for theta, intensity, _d in rows],
+                         [(10, 7500), (20, 3000), (30, -2.5)])
+
+    def test_d_input_also_skips_instrument_headers(self) -> None:
+        rows, skipped = xrd_tools.parse_xrd_axis_text("40kV/15mA\n4 100\n2 50", "1.5406", "d")
+        self.assertEqual(skipped, 1)
+        self.assertEqual([(d, intensity) for _theta, intensity, d in rows], [(4, 100), (2, 50)])
+
     def test_processed_rows_are_normalized_and_finite(self) -> None:
         rows, _ = xrd_tools.parse_xrd_text("10 5\n20 15\n30 10\n40 20", "1.5406")
         processed = xrd_tools.process_xrd_rows(rows)
