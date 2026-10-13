@@ -2,16 +2,23 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [1.0.3] - 2026-10-13
 
-### Added
+### 新增
 
-- Drag one or more exported XRD text files into the main window to create new samples in the selected material, with source filenames in sample notes. Drop onto the raw d input to use d coordinates.
-- Bundle native TkDnD support in Windows executable builds.
+- 支持将一个或多个导出的 XRD 文本文件拖入主窗口，在当前材料下批量创建样品，并将来源文件名写入备注；拖入原始 d 输入框时按 d 坐标解析。
+- 支持 UTF-8、UTF-16、GB18030 等文本编码及带引号的 CSV 数值；Windows EXE 包含原生 TkDnD 拖拽依赖。
 
-### Fixed
+### 修复
 
-- Skip instrument metadata such as `X-Ray 40kV/15mA` when parsing XRD text instead of turning it into a false `(40, 15)` data point.
+- 跳过 X-Ray 40kV/15mA 等仪器说明行，避免将其中的数字误识别为测量点。
+- 导入时先保存 XRD 数据，再原子提交样品记录；XRD 写入、JSON 写入或替换失败时回滚本次新建目录，不留下空样品，批次中其他有效文件继续导入。
+- 已有样品、未登记但已存在的样品目录及原始导入文件保持完整；已有记录损坏时拒绝导入，避免覆盖记录。
+
+### 贡献与升级
+
+- 感谢 lzy（GitHub: stellariums）在 [PR #1](https://github.com/LYKD/ExMaterial/pull/1) 中贡献批量拖拽导入、文本解析与 TkDnD 打包支持；本次审核补充了保存失败回滚及故障注入测试。
+- v1.0.2 可通过“帮助 → 检查更新”安装此版；更早的无更新器版本请手动下载一次，保留原 information 数据目录。
 
 ## [1.0.2] - 2026-10-13
 

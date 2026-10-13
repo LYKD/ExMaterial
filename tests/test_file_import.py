@@ -113,6 +113,110 @@ class FileDropTests(unittest.TestCase):
         self.assertAlmostEqual(rows[0][0], xrd_tools.d_to_theta(4, 1.0))
         self.assertEqual(self.app.store.load_samples("carbon")[0].xrd_wavelength, "1.0")
 
+    def test_failed_xrd_write_rolls_back_only_new_sample(self):
+        existing = self.app.store.add_sample("carbon")
+        original_rows = [(30, 150, 3), (40, 200, 2)]
+        self.app.store.save_xrd_data("carbon", existing.number, original_rows)
+        folder = self.app.store.material_path("carbon")
+        record_before = (folder / "samples.json").read_bytes()
+        data_before = (folder / "#1" / "xrd_data.csv").read_bytes()
+
+        def partial_write(material, number, _rows):
+            (self.app.store.sample_dir(material, number) / "xrd_data.csv").write_text("partial")
+            raise OSError("simulated XRD disk failure")
+
+        with patch.object(self.app.store, "save_xrd_data", side_effect=partial_write), \
+                patch.object(exmaterial_app.messagebox, "showwarning") as warning:
+            self.assertEqual(self.drop([self.file("failed.txt")]), REFUSE_DROP)
+        self.assertIn("simulated XRD disk failure", warning.call_args.args[1])
+        self.assertEqual((folder / "samples.json").read_bytes(), record_before)
+        self.assertEqual((folder / "#1" / "xrd_data.csv").read_bytes(), data_before)
+        self.assertFalse((folder / "#2").exists())
+
+    def test_failed_xrd_file_does_not_block_rest_of_batch(self):
+        original_save = self.app.store.save_xrd_data
+        failed = False
+
+        def fail_once(material, number, rows):
+            nonlocal failed
+            if not failed:
+                failed = True
+                original_save(material, number, rows)
+                raise OSError("simulated partial write")
+            return original_save(material, number, rows)
+
+        with patch.object(self.app.store, "save_xrd_data", side_effect=fail_once), \
+                patch.object(exmaterial_app.messagebox, "showwarning") as warning:
+            self.assertEqual(self.drop([self.file("failed.txt"), self.file("valid.txt")]), COPY)
+        samples = self.app.store.load_samples("carbon")
+        self.assertEqual([sample.number for sample in samples], [1])
+        self.assertIn("valid.txt", samples[0].notes)
+        self.assertIn("failed.txt", warning.call_args.args[1])
+        self.assertFalse(self.app.store.sample_dir("carbon", 2).exists())
+
+    def test_json_commit_failure_preserves_record_and_rolls_back_new_folder(self):
+        self.app.store.add_sample("carbon")
+        folder = self.app.store.material_path("carbon")
+        original_record = (folder / "samples.json").read_bytes()
+        with patch.object(exmaterial_app.os, "replace", side_effect=OSError("simulated JSON commit failure")), \
+                patch.object(exmaterial_app.messagebox, "showwarning"):
+            self.assertEqual(self.drop([self.file("failed.txt")]), REFUSE_DROP)
+        self.assertEqual((folder / "samples.json").read_bytes(), original_record)
+        self.assertFalse((folder / "#2").exists())
+        self.assertEqual(list(folder.glob(".samples-*.tmp")), [])
+
+    def test_json_write_failure_cannot_truncate_existing_record(self):
+        self.app.store.add_sample("carbon")
+        folder = self.app.store.material_path("carbon")
+        original_record = (folder / "samples.json").read_bytes()
+
+        def partial_json(_data, handle, **_kwargs):
+            handle.write("[")
+            raise OSError("simulated JSON write failure")
+
+        with patch.object(exmaterial_app.json, "dump", side_effect=partial_json), \
+                patch.object(exmaterial_app.messagebox, "showwarning"):
+            self.assertEqual(self.drop([self.file("failed.txt")]), REFUSE_DROP)
+        self.assertEqual((folder / "samples.json").read_bytes(), original_record)
+        self.assertFalse((folder / "#2").exists())
+        self.assertEqual(list(folder.glob(".samples-*.tmp")), [])
+
+    def test_json_commit_failure_does_not_block_rest_of_batch(self):
+        original_replace = exmaterial_app.os.replace
+        failed = False
+
+        def fail_once(source, destination):
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise OSError("simulated JSON commit failure")
+            return original_replace(source, destination)
+
+        with patch.object(exmaterial_app.os, "replace", side_effect=fail_once), \
+                patch.object(exmaterial_app.messagebox, "showwarning"):
+            self.assertEqual(self.drop([self.file("failed.txt"), self.file("valid.txt")]), COPY)
+        samples = self.app.store.load_samples("carbon")
+        self.assertEqual([sample.number for sample in samples], [1])
+        self.assertIn("valid.txt", samples[0].notes)
+
+    def test_import_does_not_reuse_unindexed_directory(self):
+        folder = self.app.store.sample_dir("carbon", 1)
+        folder.mkdir()
+        sentinel = folder / "keep.txt"
+        sentinel.write_bytes(b"existing user data")
+        self.assertEqual(self.drop([self.file("valid.txt")]), COPY)
+        self.assertEqual(sentinel.read_bytes(), b"existing user data")
+        self.assertEqual([sample.number for sample in self.app.store.load_samples("carbon")], [2])
+
+    def test_unreadable_record_refuses_import_without_overwriting_data(self):
+        folder = self.app.store.material_path("carbon")
+        record = folder / "samples.json"
+        record.write_bytes(b"{invalid existing record")
+        with patch.object(exmaterial_app.messagebox, "showwarning"):
+            self.assertEqual(self.drop([self.file("valid.txt")]), REFUSE_DROP)
+        self.assertEqual(record.read_bytes(), b"{invalid existing record")
+        self.assertFalse((folder / "#1").exists())
+
     def test_missing_material_refuses_drop_without_creating_data(self):
         self.app.current_material = ""
         with patch.object(exmaterial_app.messagebox, "showinfo"):

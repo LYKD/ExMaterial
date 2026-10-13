@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import re
 import shutil
 import sys
+import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -306,13 +308,15 @@ class MaterialStore:
         if folder.exists():
             shutil.rmtree(folder)
 
-    def load_samples(self, material: str) -> list[Sample]:
+    def load_samples(self, material: str, *, strict: bool = False) -> list[Sample]:
         path = self.material_path(material) / DATA_FILE
         if not path.exists():
             return []
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
+            if strict:
+                raise
             messagebox.showerror("读取失败", f"无法读取 {path}")
             return []
         return sorted([Sample.from_dict(item) for item in data], key=lambda item: item.number)
@@ -321,7 +325,45 @@ class MaterialStore:
         folder = self.material_path(material)
         folder.mkdir(parents=True, exist_ok=True)
         data = [asdict(sample) for sample in sorted(samples, key=lambda item: item.number)]
-        (folder / DATA_FILE).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".samples-", suffix=".tmp", dir=folder)
+        temporary_path = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, folder / DATA_FILE)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+    def import_xrd_sample(
+        self, material: str, rows: list[tuple[float, float, float]], wavelength: str, source_name: str
+    ) -> Sample:
+        """Commit a new import only after its data has been saved successfully."""
+        samples = self.load_samples(material, strict=True)
+        next_number = max((sample.number for sample in samples), default=0) + 1
+        folder = self.sample_dir(material, next_number)
+        # An unindexed directory may contain user data; never reuse or remove it.
+        while folder.exists() or folder.is_symlink():
+            next_number += 1
+            folder = self.sample_dir(material, next_number)
+        sample = Sample(
+            number=next_number,
+            importance=default_importance(next_number),
+            xrd_wavelength=wavelength,
+            notes=f"XRD 来源文件：{source_name}",
+            created_at=now_text(),
+            updated_at=now_text(),
+        )
+        # Exclusive creation establishes that rollback owns this new directory.
+        folder.mkdir()
+        try:
+            self.save_xrd_data(material, sample.number, rows)
+            self.save_samples(material, [*samples, sample])
+        except (OSError, ValueError):
+            shutil.rmtree(folder)
+            raise
+        return sample
 
     def add_sample(self, material: str) -> Sample:
         samples = self.load_samples(material)
@@ -1221,11 +1263,7 @@ class ExMaterialApp:
                     xrd_tools.read_xrd_file(path), wavelength, axis_kind,
                     self.theta_column.get(), self.intensity_column.get(),
                 )
-                sample = self.store.add_sample(self.current_material)
-                sample.xrd_wavelength = wavelength
-                sample.notes = f"XRD 来源文件：{path.name}"
-                self.store.update_sample(self.current_material, sample)
-                self.store.save_xrd_data(self.current_material, sample.number, rows)
+                sample = self.store.import_xrd_sample(self.current_material, rows, wavelength, path.name)
             except (OSError, ValueError) as exc:
                 failures.append(f"{path.name}: {exc}")
                 continue

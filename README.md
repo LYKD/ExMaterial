@@ -24,7 +24,7 @@
 
 ## Install and run
 
-For a ready-to-run Windows x64 executable, download [ExMaterial 1.0.2](https://github.com/LYKD/ExMaterial/releases/download/v1.0.2/ExMaterial-1.0.2-windows-x64.exe). See the [release notes](https://github.com/LYKD/ExMaterial/releases/tag/v1.0.2) for all changes. Versions 1.0.1 and earlier need this one manual upgrade to gain in-app updating. Replace the EXE in your existing application folder and keep the sibling information data directory.
+For a ready-to-run Windows x64 executable, download [ExMaterial 1.0.3](https://github.com/LYKD/ExMaterial/releases/download/v1.0.3/ExMaterial-1.0.3-windows-x64.exe). See the [release notes](https://github.com/LYKD/ExMaterial/releases/tag/v1.0.3) for all changes. Version 1.0.2 supports in-app upgrading; versions 1.0.1 and earlier need one manual upgrade to gain in-app updating. Replace the EXE in your existing application folder and keep the sibling information data directory.
 
 ExMaterial supports Python 3.10 or later on Windows. Create an environment, install the dependency, then start the desktop app:
 

@@ -24,7 +24,7 @@
 
 ## 安装与运行
 
-免安装 Windows x64 版：[下载 ExMaterial 1.0.2](https://github.com/LYKD/ExMaterial/releases/download/v1.0.2/ExMaterial-1.0.2-windows-x64.exe)。本次修改详见 [发布说明](https://github.com/LYKD/ExMaterial/releases/tag/v1.0.2) 和 [更新日志](CHANGELOG.md)。v1.0.1 及更早版本需手动升级这一次，随后即可使用软件内更新。将下载的 EXE 放回原程序目录，保留同级 information 数据目录。
+免安装 Windows x64 版：[下载 ExMaterial 1.0.3](https://github.com/LYKD/ExMaterial/releases/download/v1.0.3/ExMaterial-1.0.3-windows-x64.exe)。本次修改详见 [发布说明](https://github.com/LYKD/ExMaterial/releases/tag/v1.0.3) 和 [更新日志](CHANGELOG.md)。v1.0.2 可通过“帮助 → 检查更新”安装此版；v1.0.1 及更早版本需手动升级一次。将下载的 EXE 放回原程序目录，保留同级 information 数据目录。
 
 支持 Windows 上的 Python 3.10 或更高版本：
 
