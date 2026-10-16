@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import queue
 import shutil
-import sys
 import threading
 import webbrowser
 from tkinter import BOTH, END, LEFT, Button, Frame, Label, Text, Toplevel, messagebox, ttk
@@ -15,9 +14,10 @@ except ImportError:
 
 
 class UpdateManager:
-    def __init__(self, root, current_version: str):
+    def __init__(self, root, current_version: str, notify=None):
         self.root = root
         self.current_version = current_version
+        self.notify = notify
         self.events = queue.Queue()
         self.busy = False
         self.window = None
@@ -50,7 +50,11 @@ class UpdateManager:
                 if kind == "checked":
                     self.busy = False
                     if value is not None:
-                        self.show_release(value)
+                        hint = updates.manual_update_hint(value)
+                        if hint and not extra and self.notify:
+                            self.notify(f"发现新版本 {value.version}，{hint}")
+                        else:
+                            self.show_release(value)
                     elif extra:
                         messagebox.showinfo("检查更新", f"当前 {self.current_version} 已是最新正式版。", parent=self.root)
                 elif kind == "check_error":
@@ -92,19 +96,20 @@ class UpdateManager:
         notes.pack(fill=BOTH, expand=True)
         notes.insert(END, release.notes)
         notes.configure(state="disabled")
-        can_install = release.can_install and sys.platform == "win32" and getattr(sys, "frozen", False)
-        hint = "更新会关闭并重启软件，请先保存编辑内容。实验数据目录会保留。"
-        if not can_install:
-            hint = "请从发布页下载 Windows 版更新包，或更新本地源码。"
-        self.status = Label(body, text=hint, wraplength=520, justify=LEFT)
+        hint = updates.manual_update_hint(release)
+        self.status = Label(body, wraplength=520, justify=LEFT,
+                            text=hint or "更新会关闭并重启软件，请先保存编辑内容。实验数据目录会保留。")
         self.status.pack(anchor="w", pady=8)
-        self.progress = ttk.Progressbar(body, maximum=100)
-        self.progress.pack(fill="x", pady=(0, 8))
+        if not hint:
+            self.progress = ttk.Progressbar(body, maximum=100)
+            self.progress.pack(fill="x", pady=(0, 8))
         buttons = Frame(body)
         buttons.pack(fill="x")
         Button(buttons, text="查看发布页", command=lambda: webbrowser.open(release.page_url)).pack(side=LEFT)
         Button(buttons, text="稍后", command=self.close).pack(side=LEFT, padx=8)
-        self.install_button = Button(buttons, text="下载并重启更新", command=self.download, state="normal" if can_install else "disabled")
+        if hint:
+            return
+        self.install_button = Button(buttons, text="下载并重启更新", command=self.download)
         self.install_button.pack(side="right")
 
     def download(self) -> None:

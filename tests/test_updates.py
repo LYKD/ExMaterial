@@ -82,6 +82,19 @@ class UpdateTests(unittest.TestCase):
             with self.assertRaises(updates.UpdateError):
                 updates.launch_installer(Path("unused.exe"), "0" * 64)
 
+    def test_manual_update_hint_matches_the_running_build(self):
+        release = updates.release_from_json(release_data(), "1.0.0")
+        with patch.object(updates.sys, "platform", "win32"), patch.object(updates.sys, "frozen", True, create=True):
+            self.assertEqual(updates.manual_update_hint(release), "")
+        with patch.object(updates.sys, "platform", "win32"), patch.object(updates.sys, "frozen", False, create=True):
+            self.assertIn("git pull", updates.manual_update_hint(release))
+        with patch.object(updates.sys, "platform", "linux"):
+            self.assertIn("发布页", updates.manual_update_hint(release))
+        unverifiable = release_data()
+        unverifiable["assets"][0]["digest"] = None
+        with patch.object(updates.sys, "platform", "win32"), patch.object(updates.sys, "frozen", True, create=True):
+            self.assertIn("发布页", updates.manual_update_hint(updates.release_from_json(unverifiable, "1.0.0")))
+
     def test_rate_limit_has_actionable_message(self):
         error = HTTPError(updates.API_URL, 403, "rate limit exceeded", {}, None)
         with patch.object(updates, "urlopen", side_effect=error):
