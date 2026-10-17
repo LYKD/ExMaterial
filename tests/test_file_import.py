@@ -6,7 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from tkinterdnd2 import COPY, REFUSE_DROP, TkinterDnD
+import pytest
+
+from tkinterdnd2 import COPY, REFUSE_DROP
 
 from exmaterial import exmaterial_app, xrd_tools
 
@@ -30,13 +32,8 @@ class XrdFileTests(unittest.TestCase):
                     xrd_tools.read_xrd_file(path)
 
 
+@pytest.mark.usefixtures("tk_root")
 class FileDropTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.root = TkinterDnD.Tk()
-        cls.root.withdraw()
-        cls.addClassCleanup(cls.root.destroy)
-
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

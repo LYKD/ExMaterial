@@ -6,14 +6,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
 from exmaterial import update_ui, updates
 
 
 @unittest.skipUnless(sys.platform == "win32", "Windows Tk update interface")
+@pytest.mark.usefixtures("tk_root")
 class UpdateUiTests(unittest.TestCase):
     def setUp(self):
-        self.root = tk.Tk()
-        self.root.withdraw()
         self.notify = Mock()
         self.manager = update_ui.UpdateManager(self.root, "1.0.3", notify=self.notify)
         self.release = updates.Release(
@@ -24,7 +25,8 @@ class UpdateUiTests(unittest.TestCase):
     def tearDown(self):
         for callback in self.root.tk.call("after", "info"):
             self.root.after_cancel(callback)
-        self.root.destroy()
+        for widget in self.root.winfo_children():
+            widget.destroy()
 
     def checked(self, release, *, manual, frozen):
         with patch.object(updates.sys, "frozen", frozen, create=True):
