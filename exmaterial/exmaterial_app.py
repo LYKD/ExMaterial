@@ -520,7 +520,7 @@ class ExMaterialApp:
         self.plot_configs: dict[str, dict] = {}
         self.last_sample_density = ""
         self.status = StringVar()
-        self.updater = UpdateManager(root, APP_VERSION)
+        self.updater = UpdateManager(root, APP_VERSION, notify=self.set_status)
         self.build_ui()
         self.bind_xrd_file_drop()
         self.refresh_materials()
