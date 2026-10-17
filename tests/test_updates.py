@@ -101,6 +101,19 @@ class UpdateTests(unittest.TestCase):
             with self.assertRaisesRegex(updates.UpdateError, "检查频率"):
                 updates.check_latest("1.0.0")
 
+    def test_source_guidance_still_applies_without_a_windows_asset(self):
+        release = updates.Release("1.2.0", updates.RELEASES_URL, "Changes")
+        with patch.object(updates.sys, "platform", "win32"), patch.object(updates.sys, "frozen", False, create=True):
+            hint = updates.manual_update_hint(release)
+        self.assertIn("git pull", hint)
+        self.assertIn("源码压缩包", hint)
+        self.assertNotEqual(hint, updates.NO_PACKAGE_UPDATE_HINT)
+
+    def test_platform_guidance_still_applies_without_a_windows_asset(self):
+        release = updates.Release("1.2.0", updates.RELEASES_URL, "Changes")
+        with patch.object(updates.sys, "platform", "linux"):
+            self.assertEqual(updates.manual_update_hint(release), updates.PLATFORM_UPDATE_HINT)
+
     def test_release_api_response_is_parsed(self):
         response = io.BytesIO(json.dumps(release_data()).encode("utf-8"))
         with patch.object(updates, "urlopen", return_value=response) as request:

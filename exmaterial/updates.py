@@ -41,19 +41,19 @@ class Release:
         return bool(self.download_url and self.sha256 and self.size)
 
 
-SOURCE_UPDATE_HINT = "当前从源码运行，自动替换仅适用于 Windows EXE 版。请在源码目录执行 git pull 后重启软件，数据目录不受影响。"
+SOURCE_UPDATE_HINT = "当前从源码运行，自动替换仅适用于 Windows EXE 版。通过 Git 获取源码的用户可在源码目录执行 git pull 后重启；通过源码压缩包安装的用户请从发布页下载新版源码。升级时保留 information 数据目录。"
 PLATFORM_UPDATE_HINT = "自动替换仅适用于 Windows EXE 版，请从发布页下载对应版本。"
 NO_PACKAGE_UPDATE_HINT = "此版本没有可校验的 Windows 安装包，请从发布页下载。"
 
 
 def manual_update_hint(release: Release) -> str:
     """Return why this running build cannot self-update, or an empty string when it can."""
-    if not release.can_install:
-        return NO_PACKAGE_UPDATE_HINT
     if sys.platform != "win32":
         return PLATFORM_UPDATE_HINT
     if not getattr(sys, "frozen", False):
         return SOURCE_UPDATE_HINT
+    if not release.can_install:
+        return NO_PACKAGE_UPDATE_HINT
     return ""
 
 
