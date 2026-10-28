@@ -22,9 +22,21 @@
 - 将样品数据和生成图自动保存在本机 `information/` 目录。
 - 启动时后台检查正式版更新，也可通过“帮助 → 检查更新”手动检查；Windows EXE 版支持下载、校验并重启更新。
 
+## 1.1.0：XPS 与共享显示设置
+
+XRD、XPS、热导率在同一级标签页中使用，共享左侧的材料与样品选择。XPS 支持单条扫描的 TXT/CSV/TSV/XY/DAT 文本导入或粘贴、自定义列号、结合能平移、能区截取、线性背景扣除、移动平均平滑、归一化和 CSV/JPG 导出。结合能图按从高到低显示；多能区或重复扫描应分别处理。
+
+XPS 原始文本、来源文件名、处理参数和结果保存在每个样品的 `xps_workspace.json`。点击“保存工作区”保存；切换样品保留当前会话中的未保存编辑，关闭程序时会询问是否保存。一个样品当前保存一条 XPS 扫描，导入新扫描将替换该工作区，旧结果请先导出。
+
+能量校正使用 `校正后结合能 = 原始结合能 + ΔE`。能区边界使用校正后的能量，线性背景连接所选区间首尾点；平滑窗口为奇数，1 表示不平滑；归一化除以最大绝对强度。积分为扣背景后、平滑及归一化前的有符号梯形积分，单位为输入强度 × eV，积分范围是区间内实际首尾采样点。最大值位置仅为采样峰位；本版未实现分峰拟合、Shirley/Tougaard 背景或 RSF 原子百分比定量。
+
+顶部“流畅 / 精细”控制公共绘图预览预算和重绘间隔，设置保存在 `information/app_settings.json`。采用 CPU/Tk 渲染，无 GPU 依赖。连续缩放事件合并重绘，大曲线预览保留分桶极值并缓存；导出不使用此预览抽稀。该模式不保证所有硬件和数据量均无卡顿。
+
 ## 安装与运行
 
-免安装 Windows x64 版：[下载 ExMaterial 1.0.4](https://github.com/LYKD/ExMaterial/releases/download/v1.0.4/ExMaterial-1.0.4-windows-x64.exe)。本次修改详见 [发布说明](https://github.com/LYKD/ExMaterial/releases/tag/v1.0.4) 和 [更新日志](CHANGELOG.md)。v1.0.2 及以上可通过“帮助 → 检查更新”安装此版；v1.0.1 及更早版本需手动升级一次。将下载的 EXE 放回原程序目录，保留同级 information 数据目录。
+当前正式版本为 **1.1.0**，包含上述 XPS 与共享显示优化。
+
+免安装 Windows x64 版：[下载 ExMaterial 1.1.0](https://github.com/LYKD/ExMaterial/releases/download/v1.1.0/ExMaterial-1.1.0-windows-x64.exe)。本次修改详见 [发布说明](https://github.com/LYKD/ExMaterial/releases/tag/v1.1.0) 和 [更新日志](CHANGELOG.md)。v1.0.2 及以上可通过“帮助 → 检查更新”安装此版；v1.0.1 及更早版本需手动升级一次。将下载的 EXE 放回原程序目录，保留同级 information 数据目录。
 
 支持 Windows 上的 Python 3.10 或更高版本：
 

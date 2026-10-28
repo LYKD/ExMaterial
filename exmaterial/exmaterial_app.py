@@ -36,6 +36,9 @@ from tkinterdnd2 import COPY, DND_FILES, REFUSE_DROP, TkinterDnD
 try:
     from . import __version__, thermal_tools, xrd_tools
     from . import updates
+    from .settings import AppSettings, load_settings, save_settings
+    from .theme import apply_theme
+    from .xps_ui import XpsWindow
     from .update_ui import UpdateManager
     from .plot_viewer import PlotViewer as GenericPlotViewer
     from .plot_viewer import draw_scatter_plot, save_scatter_jpg
@@ -44,6 +47,9 @@ except ImportError:  # Supports launching this file directly from its source fol
     import thermal_tools
     import xrd_tools
     import updates
+    from settings import AppSettings, load_settings, save_settings
+    from theme import apply_theme
+    from xps_ui import XpsWindow
     from update_ui import UpdateManager
     from plot_viewer import PlotViewer as GenericPlotViewer
     from plot_viewer import draw_scatter_plot, save_scatter_jpg
@@ -474,7 +480,11 @@ class MaterialStore:
 class ExMaterialApp:
     def __init__(self, root: Tk) -> None:
         self.root = root
+        apply_theme(root)
+        self.xps_windows = {}
         self.store = MaterialStore()
+        self.settings_path = self.store.root / "app_settings.json"
+        self.root.app_settings = load_settings(self.settings_path)
         self.current_material = ""
         self.current_sample_number = 0
         self.fields = {
@@ -522,16 +532,30 @@ class ExMaterialApp:
         self.status = StringVar()
         self.updater = UpdateManager(root, APP_VERSION, notify=self.set_status)
         self.build_ui()
+        self.root.protocol("WM_DELETE_WINDOW", self.close_app)
         self.bind_xrd_file_drop()
         self.refresh_materials()
         self.root.after(1500, lambda: self.updater.check(manual=False))
 
     def build_ui(self) -> None:
         self.root.title(APP_TITLE)
-        self.root.geometry("1280x780")
-        self.root.minsize(760, 520)
+        self.root.geometry("1440x900")
+        self.root.minsize(1100, 700)
         self.build_menu()
 
+        header = Frame(self.root, padx=18, pady=12, bg="#193b46")
+        header.pack(fill="x")
+        Label(header, text="ExMaterial", font=("Segoe UI", 21, "bold"), bg="#193b46", fg="white").pack(side=LEFT)
+        Label(header, text="材料表征工作台  /  XRD · XPS · 热输运", bg="#193b46", fg="#b9d8dd").pack(side=LEFT, padx=20)
+        nav = Frame(self.root, padx=18, pady=6)
+        nav.pack(fill="x")
+        Button(nav, text="样品信息", command=lambda: self.editor_canvas.yview_moveto(0)).pack(side=LEFT)
+        Button(nav, text="多样品对比", command=self.open_compare_window).pack(side=LEFT, padx=8)
+        self.plot_quality = StringVar(value=self.root.app_settings.plot_quality)
+        quality = ttk.Combobox(nav, textvariable=self.plot_quality, values=["流畅", "精细"], state="readonly", width=6)
+        quality.pack(side=RIGHT)
+        quality.bind("<<ComboboxSelected>>", lambda e: self.change_plot_quality())
+        Label(nav, text="绘图预览 · CPU").pack(side=RIGHT, padx=8)
         main = Frame(self.root, padx=12, pady=12)
         main.pack(fill=BOTH, expand=True)
 
@@ -542,7 +566,7 @@ class ExMaterialApp:
         material_buttons.pack(fill="x", pady=(4, 8))
         Button(material_buttons, text="新建文件夹", command=self.create_material).pack(side=LEFT, fill="x", expand=True)
         Button(material_buttons, text="删除", command=self.delete_material).pack(side=LEFT, fill="x", expand=True, padx=(8, 0))
-        self.material_list = self.listbox_with_scrollbar(materials, width=22)
+        self.material_list = self.listbox_with_scrollbar(materials, width=18)
         self.material_list.bind("<<ListboxSelect>>", self.on_material_select)
 
         samples = Frame(main)
@@ -552,7 +576,7 @@ class ExMaterialApp:
         sample_buttons.pack(fill="x", pady=(4, 8))
         Button(sample_buttons, text="+ 新增样品", command=self.add_sample).pack(side=LEFT, fill="x", expand=True)
         Button(sample_buttons, text="- 删除", command=self.delete_sample).pack(side=LEFT, fill="x", expand=True, padx=(8, 0))
-        self.sample_list = self.listbox_with_scrollbar(samples, width=24)
+        self.sample_list = self.listbox_with_scrollbar(samples, width=20)
         self.sample_list.bind("<<ListboxSelect>>", self.on_sample_select)
 
         editor_canvas = Canvas(main, highlightthickness=0)
@@ -596,7 +620,18 @@ class ExMaterialApp:
         bind_mousewheel(notes_scroll, self.notes)
         Button(info, text="保存当前样品", command=self.save_sample).grid(row=3, column=3, sticky="e", pady=(8, 0))
 
-        thermal = LabelFrame(editor, text="热导率数据", padx=10, pady=8)
+        self.analysis_tabs = ttk.Notebook(editor)
+        self.analysis_tabs.pack(fill=BOTH, expand=True, pady=(14, 0))
+        self.xrd_tab = Frame(self.analysis_tabs)
+        self.xps_tab = Frame(self.analysis_tabs)
+        self.thermal_tab = Frame(self.analysis_tabs)
+        for page, label in [(self.xrd_tab, "XRD · 衍射"), (self.xps_tab, "XPS · 光电子能谱"), (self.thermal_tab, "热导率 · 输运")]:
+            self.analysis_tabs.add(page, text=label)
+        self.xps_empty = Label(self.xps_tab, text="请选择样品，开始导入和处理 XPS 光谱。", pady=40)
+        self.xps_empty.pack(fill="x")
+        self.analysis_tabs.bind("<<NotebookTabChanged>>", self.on_analysis_tab)
+        thermal = LabelFrame(self.thermal_tab, text="热导率数据", padx=10, pady=8)
+        self.thermal_section = thermal
         thermal.pack(fill="x", pady=(10, 0))
         Label(thermal, text="每行填写一个测试温度点；密度默认等于样品密度，也可以在单行里改成该温度点的密度。热导率 = 密度 × 热容 × 热扩散。").pack(anchor="w")
         self.thermal_rows_frame = Frame(thermal)
@@ -617,7 +652,7 @@ class ExMaterialApp:
         self.thermal_plot.pack(fill=BOTH, expand=True, pady=(8, 0))
         self.thermal_plot.bind("<Double-Button-1>", lambda _event: self.open_plot_viewer("thermal"))
 
-        self.xrd_section = LabelFrame(editor, text="XRD 数据", padx=10, pady=8)
+        self.xrd_section = LabelFrame(self.xrd_tab, text="XRD 数据", padx=10, pady=8)
         xrd = self.xrd_section
         xrd.pack(fill=BOTH, expand=True, pady=(10, 0))
         Label(xrd, text="可将 XRD 文本文件拖入主窗口，每个文件新建样品并在备注记录文件名；拖到原始 d 框按 d 导入。").grid(
@@ -703,7 +738,7 @@ class ExMaterialApp:
         xrd.rowconfigure(1, weight=1)
         xrd.rowconfigure(4, weight=1)
 
-        self.plot_panel = LabelFrame(editor, text="XRD 图", padx=10, pady=8)
+        self.plot_panel = LabelFrame(self.xrd_tab, text="XRD 图", padx=10, pady=8)
         plot_buttons = Frame(self.plot_panel)
         plot_buttons.pack(fill="x")
         Button(plot_buttons, text="关闭图", command=self.hide_plots).pack(side=RIGHT)
@@ -716,7 +751,7 @@ class ExMaterialApp:
         self.plot_d.pack(side=LEFT, fill=BOTH, expand=True)
         self.plot_d.bind("<Double-Button-1>", lambda _event: self.open_plot_viewer("d"))
 
-        self.processed_plot_panel = LabelFrame(editor, text="处理后 XRD 图", padx=10, pady=8)
+        self.processed_plot_panel = LabelFrame(self.xrd_tab, text="处理后 XRD 图", padx=10, pady=8)
         processed_plot_buttons = Frame(self.processed_plot_panel)
         processed_plot_buttons.pack(fill="x")
         Button(processed_plot_buttons, text="关闭图", command=self.hide_processed_plots).pack(side=RIGHT)
@@ -746,10 +781,51 @@ class ExMaterialApp:
         bind_editor_mousewheel(editor, editor_canvas)
         Label(self.root, textvariable=self.status, anchor="w", relief="sunken").pack(fill="x")
 
+    def change_plot_quality(self) -> None:
+        settings = AppSettings(self.plot_quality.get())
+        try:
+            save_settings(self.settings_path, settings)
+        except OSError as exc:
+            self.plot_quality.set(self.root.app_settings.plot_quality)
+            messagebox.showerror("设置保存失败", str(exc))
+            return
+        self.root.app_settings = settings
+        self.root.event_generate("<<PlotSettingsChanged>>", when="tail")
+        self.set_status(f"预览模式：{settings.plot_quality}；原始数据与导出数据保留全部点")
+
+    def close_app(self) -> None:
+        for workbench in self.xps_windows.values():
+            if workbench.window.winfo_exists():
+                workbench.close()
+                if workbench.window.winfo_exists():
+                    return
+        self.root.destroy()
+
+    def on_analysis_tab(self, event=None) -> None:
+        if self.analysis_tabs.select() == str(self.xps_tab):
+            self.open_xps()
+
+    def open_xps(self) -> None:
+        if self.analysis_tabs.select() != str(self.xps_tab):
+            self.analysis_tabs.select(self.xps_tab)
+        for child in self.xps_tab.winfo_children():
+            child.pack_forget()
+        if not self.current_material or not self.current_sample_number:
+            self.xps_empty.pack(fill="x")
+            return
+        key = (self.current_material, self.current_sample_number)
+        existing = self.xps_windows.get(key)
+        if existing is not None and existing.window.winfo_exists():
+            existing.window.pack(fill=BOTH, expand=True)
+            return
+        folder = self.store.sample_dir(*key)
+        self.xps_windows[key] = XpsWindow(self.xps_tab, folder, f"{key[0]} / 样品 {key[1]}", embedded=True)
+
     def build_menu(self) -> None:
         menubar = Menu(self.root)
         function_menu = Menu(menubar, tearoff=0)
         function_menu.add_command(label="对比", command=self.open_compare_window)
+        function_menu.add_command(label="XPS 工作台", command=self.open_xps)
         menubar.add_cascade(label="功能", menu=function_menu)
         help_menu = Menu(menubar, tearoff=0)
         help_menu.add_command(label="检查更新…", command=self.updater.check)
@@ -778,7 +854,7 @@ class ExMaterialApp:
         frame.columnconfigure(0, weight=1)
         text = Text(frame, height=height, wrap="none", undo=True, borderwidth=0)
         text.grid(row=0, column=0, sticky="nsew")
-        y_scroll = Scrollbar(frame, command=text.yview, width=22)
+        y_scroll = Scrollbar(frame, command=text.yview, width=18)
         y_scroll.grid(row=0, column=1, sticky="ns")
         x_scroll = Scrollbar(frame, command=text.xview, orient="horizontal", width=18)
         x_scroll.grid(row=1, column=0, sticky="ew")
@@ -1342,6 +1418,11 @@ class ExMaterialApp:
         self.select_material(name.strip())
 
     def delete_material(self) -> None:
+        for key, workbench in list(self.xps_windows.items()):
+            if key[0] == self.current_material and workbench.window.winfo_exists():
+                workbench.close()
+                if workbench.window.winfo_exists():
+                    return
         selection = self.material_list.curselection()
         if not selection:
             messagebox.showinfo("请先选择", "请先选择要删除的材料文件夹。")
@@ -1423,6 +1504,7 @@ class ExMaterialApp:
 
     def load_sample(self, sample: Sample) -> None:
         self.current_sample_number = sample.number
+        self.on_analysis_tab()
         self.fields["sample_label"].set(sample.label)
         self.fields["importance"].set(str(clamp_importance(sample.importance)))
         self.fields["obtained_year"].set(sample.obtained_year)
@@ -1497,6 +1579,11 @@ class ExMaterialApp:
         self.fields["thermal_conductivity"].set(self.calculate_thermal_conductivity())
 
     def delete_sample(self) -> None:
+        for key, workbench in list(self.xps_windows.items()):
+            if key[0] == self.current_material and workbench.window.winfo_exists():
+                workbench.close()
+                if workbench.window.winfo_exists():
+                    return
         if not self.current_material:
             messagebox.showinfo("请先选择", "请先选择一个材料文件夹。")
             return
@@ -1668,6 +1755,12 @@ class ExMaterialApp:
         self.set_status(f"已保存处理后 XRD 数据和 0-100 平滑线图，不覆盖原始 XRD：{folder}")
 
     def scroll_to_section(self, section) -> None:
+        parent = section
+        while parent is not None:
+            if parent in (self.xrd_tab, self.thermal_tab, self.xps_tab):
+                self.analysis_tabs.select(parent)
+                break
+            parent = parent.master
         def reveal():
             if not section.winfo_exists() or not section.winfo_manager():
                 return
@@ -1718,6 +1811,7 @@ class ExMaterialApp:
 
     def clear_editor(self) -> None:
         self.current_sample_number = 0
+        self.on_analysis_tab()
         self.last_sample_density = ""
         for key, value in self.fields.items():
             value.set(DEFAULT_WAVELENGTH if key == "xrd_wavelength" else "")

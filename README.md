@@ -24,7 +24,7 @@
 
 ## Install and run
 
-For a ready-to-run Windows x64 executable, download [ExMaterial 1.0.4](https://github.com/LYKD/ExMaterial/releases/download/v1.0.4/ExMaterial-1.0.4-windows-x64.exe). See the [release notes](https://github.com/LYKD/ExMaterial/releases/tag/v1.0.4) for all changes. Versions 1.0.2 and later support in-app upgrading; versions 1.0.1 and earlier need one manual upgrade to gain in-app updating. Replace the EXE in your existing application folder and keep the sibling information data directory.
+For a ready-to-run Windows x64 executable, download [ExMaterial 1.1.0](https://github.com/LYKD/ExMaterial/releases/download/v1.1.0/ExMaterial-1.1.0-windows-x64.exe). See the [release notes](https://github.com/LYKD/ExMaterial/releases/tag/v1.1.0) for all changes. Versions 1.0.2 and later support in-app upgrading; versions 1.0.1 and earlier need one manual upgrade to gain in-app updating. Replace the EXE in your existing application folder and keep the sibling information data directory.
 
 Source users receive manual update instructions instead of an inactive installer button: update a Git checkout with git pull, or download the new source archive if the app was installed from an archive. Background checks report manual updates in the status bar; Help → Check for updates opens the full release notes.
 
@@ -72,3 +72,18 @@ ExMaterial is released under the GNU General Public License v3.0 only (GPL-3.0-o
 ## Contributing
 
 Bug reports, documentation improvements, and focused pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+
+## 1.1.0: XPS and shared rendering
+
+The current release is **1.1.0**, including the following features.
+
+XRD, XPS, and thermal transport are peer tabs with shared material/sample context.
+XPS supports exported text spectra, energy shifts, range selection, linear background
+subtraction, moving-average smoothing, normalization, signed area integration, and
+CSV/JPG export. Raw input and processed results are stored together in an atomic,
+sample-local `xps_workspace.json` (one scan per sample). Peak fitting, Shirley backgrounds,
+and RSF quantification are not implemented. See the Chinese README for detailed semantics.
+
+The CPU preview quality setting is persisted in `information/app_settings.json`.
+Shared rendering coalesces resize events and caches peak-preserving previews without
+reducing exported data. See `docs/architecture.md` for integrating future modules.

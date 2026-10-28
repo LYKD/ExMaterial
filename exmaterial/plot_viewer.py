@@ -11,6 +11,12 @@ except ModuleNotFoundError:
     ImageDraw = None
 
 
+try:
+    from .rendering import DeferredRedraw, canvas_preview
+except ImportError:
+    from rendering import DeferredRedraw, canvas_preview
+
+
 CANVAS_MARGIN = (92, 24, 34, 50)
 IMAGE_MARGIN = (130, 45, 72, 105)
 
@@ -124,8 +130,13 @@ def draw_scatter_plot(
     point_color: str = "#1f77b4",
     point_radius: float = 1.4,
 ) -> None:
+    if hasattr(canvas, "bind"):
+        canvas._plot_config = {key: value for key, value in locals().items() if key != "canvas"}
+        if not hasattr(canvas, "_plot_scheduler"):
+            canvas._plot_scheduler = DeferredRedraw(canvas, lambda: draw_scatter_plot(canvas, **canvas._plot_config))
+            canvas.bind("<Configure>", canvas._plot_scheduler.request)
     canvas.delete("all")
-    points = clamp_points_to_y_limits(points, y_limits)
+    points = clamp_points_to_y_limits(canvas_preview(canvas, points), y_limits)
     width = max(canvas.winfo_width(), 430)
     height = max(canvas.winfo_height(), 260)
     margin_left, margin_right, margin_top, margin_bottom = CANVAS_MARGIN
@@ -156,7 +167,7 @@ def draw_scatter_plot(
             coords = []
             for x_pos, y_pos in line_points:
                 coords.extend([x_pos, y_pos])
-            canvas.create_line(*coords, fill="#1f77b4", width=2)
+            canvas.create_line(*coords, fill=point_color, width=2)
     if point_radius > 0:
         for x_value, y_value in points:
             if (
@@ -284,7 +295,9 @@ class PlotViewer:
         Label(toolbar, textvariable=self.coord_text).pack(side="right")
         self.canvas = Canvas(self.window, bg="white", highlightthickness=0)
         self.canvas.pack(fill=BOTH, expand=True)
-        self.canvas.bind("<Configure>", lambda _event: self.redraw())
+        self.deferred_redraw = DeferredRedraw(self.canvas, self.redraw)
+        self.canvas._plot_scheduler = self.deferred_redraw
+        self.canvas.bind("<Configure>", self.deferred_redraw.request)
         self.canvas.bind("<Motion>", self.on_motion_preview)
         self.canvas.bind("<Button-1>", self.on_click_read)
         self.canvas.bind("<MouseWheel>", self.on_mousewheel)
@@ -348,7 +361,7 @@ class PlotViewer:
         self.y_limits = self.zoom_range(self.y_limits, center_y, factor)
         self.crosshair = (center_x, center_y)
         self.coord_text.set(f"x: {center_x:.6g}    y: {center_y:.6g}")
-        self.redraw()
+        self.deferred_redraw.request()
 
     def zoom_range(self, limits: tuple[float, float], center: float, factor: float) -> tuple[float, float]:
         start, end = limits

@@ -176,7 +176,7 @@ class XrdToolsTests(unittest.TestCase):
 
 class VersionTests(unittest.TestCase):
     def test_public_release_version(self) -> None:
-        self.assertEqual(__version__, "1.0.4")
+        self.assertEqual(__version__, "1.1.0")
 
 
 if __name__ == "__main__":

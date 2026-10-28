@@ -5,6 +5,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+.testdeps/
+.qa/
 *.egg-info/
 
 # Build output

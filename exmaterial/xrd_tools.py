@@ -22,6 +22,12 @@ PROCESSED_XRD_DATA_D_FILE = "processed_xrd_d_data.csv"
 PROCESSED_PLOT_2THETA_FILE = "processed_xrd_2theta.jpg"
 PROCESSED_PLOT_D_FILE = "processed_xrd_d.jpg"
 MANUAL_XRD_PEAKS_FILE = "manual_xrd_peaks.json"
+try:
+    from .rendering import DeferredRedraw, preview_points, settings_for
+except ImportError:
+    from rendering import DeferredRedraw, preview_points, settings_for
+
+
 DEFAULT_WAVELENGTH = "1.5406"
 MAX_PLOT_POINTS = 30000
 MAX_PROCESSED_PLOT_POINTS = 16000
@@ -741,7 +747,12 @@ def draw_xrd_comparison(canvas: Canvas, series: list[dict], x_limits: tuple[floa
     height = max(canvas.winfo_height(), 520)
     margin_left, margin_right, margin_top, margin_bottom = 86, 170, 34, 58
     x_min, x_max = x_limits
-    prepared, default_y_limits = prepare_comparison_series(series)
+    cache = getattr(canvas, "_comparison_cache", None)
+    if cache is None or cache[0] is not series:
+        prepared, default_y_limits = prepare_comparison_series(series)
+        canvas._comparison_cache = (series, prepared, default_y_limits)
+    else:
+        _, prepared, default_y_limits = cache
     y_min, y_max = y_limits or default_y_limits
 
     def sx(x_value: float) -> float:
@@ -764,7 +775,8 @@ def draw_xrd_comparison(canvas: Canvas, series: list[dict], x_limits: tuple[floa
     for index, item in enumerate(prepared):
         color = item["color"]
         coords = []
-        for d_value, y_value in item["display_points"]:
+        limit = settings_for(canvas).preview_limit
+        for d_value, y_value in preview_points(item["display_points"], limit):
             if min(x_min, x_max) <= d_value <= max(x_min, x_max):
                 coords.extend([sx(d_value), sy(y_value)])
         if len(coords) >= 4:
@@ -887,7 +899,8 @@ class XrdCompareWindow:
 
         self.canvas = Canvas(body, bg="white", highlightthickness=1, highlightbackground="#cccccc")
         self.canvas.pack(side=LEFT, fill=BOTH, expand=True)
-        self.canvas.bind("<Configure>", lambda _event: self.redraw())
+        self.deferred_redraw = DeferredRedraw(self.canvas, self.redraw)
+        self.canvas.bind("<Configure>", self.deferred_redraw.request)
         self.canvas.bind("<Double-Button-1>", lambda _event: self.open_viewer())
 
     def load_items(self) -> None:
@@ -1016,7 +1029,8 @@ class XrdComparisonViewer:
         Label(toolbar, textvariable=self.coord_text).pack(side=RIGHT)
         self.canvas = Canvas(self.window, bg="white", highlightthickness=0)
         self.canvas.pack(fill=BOTH, expand=True)
-        self.canvas.bind("<Configure>", lambda _event: self.redraw())
+        self.deferred_redraw = DeferredRedraw(self.canvas, self.redraw)
+        self.canvas.bind("<Configure>", self.deferred_redraw.request)
         self.canvas.bind("<Motion>", self.on_motion_preview)
         self.canvas.bind("<Button-1>", self.on_click_read)
         self.canvas.bind("<MouseWheel>", self.on_mousewheel)
@@ -1129,7 +1143,8 @@ class ManualPeakWindow:
         plot_frame.pack(side=LEFT, fill=BOTH, expand=True)
         self.canvas = Canvas(plot_frame, bg="white", highlightthickness=1, highlightbackground="#cccccc")
         self.canvas.pack(fill=BOTH, expand=True)
-        self.canvas.bind("<Configure>", lambda _event: self.redraw())
+        self.deferred_redraw = DeferredRedraw(self.canvas, self.redraw)
+        self.canvas.bind("<Configure>", self.deferred_redraw.request)
         self.canvas.bind("<Button-1>", self.select_peak_at_event)
 
         peak_frame = Frame(body, width=265)
