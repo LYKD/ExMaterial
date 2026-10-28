@@ -30,7 +30,7 @@ from tkinter import (
     Tk,
     Toplevel,
 )
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinterdnd2 import COPY, DND_FILES, REFUSE_DROP, TkinterDnD
 
 try:
@@ -85,7 +85,19 @@ def app_dir() -> Path:
 
 
 def information_dir() -> Path:
-    return app_dir().parent / "information"
+    base = app_dir()
+    config = base / "data_location.json"
+    if config.exists():
+        location = Path(json.loads(config.read_text(encoding="utf-8"))["path"])
+        if not location.is_dir():
+            raise ValueError(f"数据库目录不存在：{location}。请恢复目录或修正 {config}")
+        return location
+    candidates = [base.parent / "information", base / "information"]
+    # Prefer a populated legacy database over an empty directory from a new install.
+    for candidate in candidates:
+        if candidate.is_dir() and any(candidate.glob("*/samples.json")):
+            return candidate
+    return next((p for p in candidates if p.is_dir()), candidates[0])
 
 
 def now_text() -> str:
@@ -319,17 +331,26 @@ class MaterialStore:
         if not path.exists():
             return []
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+            if isinstance(data, dict):
+                data = data["samples"]
+            if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+                raise ValueError("样品数据库应为列表或包含 samples 列表的对象")
+            samples = [Sample.from_dict(item) for item in data]
+        except (OSError, ValueError, TypeError, KeyError) as exc:
             if strict:
                 raise
-            messagebox.showerror("读取失败", f"无法读取 {path}")
-            return []
-        return sorted([Sample.from_dict(item) for item in data], key=lambda item: item.number)
+            messagebox.showerror("读取失败", f"无法读取 {path}\n{exc}\n未修改原数据库。")
+            raise
+        return sorted(samples, key=lambda item: item.number)
 
     def save_samples(self, material: str, samples: list[Sample]) -> None:
         folder = self.material_path(material)
         folder.mkdir(parents=True, exist_ok=True)
+        original = folder / DATA_FILE
+        backup = folder / "samples.before-upgrade.json.bak"
+        if original.exists() and not backup.exists():
+            shutil.copy2(original, backup)
         data = [asdict(sample) for sample in sorted(samples, key=lambda item: item.number)]
         descriptor, temporary_name = tempfile.mkstemp(prefix=".samples-", suffix=".tmp", dir=folder)
         temporary_path = Path(temporary_name)
@@ -550,12 +571,17 @@ class ExMaterialApp:
         nav = Frame(self.root, padx=18, pady=6)
         nav.pack(fill="x")
         Button(nav, text="样品信息", command=lambda: self.editor_canvas.yview_moveto(0)).pack(side=LEFT)
-        Button(nav, text="多样品对比", command=self.open_compare_window).pack(side=LEFT, padx=8)
+        Button(nav, text="样品比对", command=self.open_compare_window).pack(side=LEFT, padx=8)
         self.plot_quality = StringVar(value=self.root.app_settings.plot_quality)
         quality = ttk.Combobox(nav, textvariable=self.plot_quality, values=["流畅", "精细"], state="readonly", width=6)
         quality.pack(side=RIGHT)
         quality.bind("<<ComboboxSelected>>", lambda e: self.change_plot_quality())
-        Label(nav, text="绘图预览 · CPU").pack(side=RIGHT, padx=8)
+        self.compute_device = StringVar(value=self.root.app_settings.compute_device)
+        device = ttk.Combobox(nav, textvariable=self.compute_device, values=["CPU", "GPU"], state="readonly", width=6)
+        device.pack(side=RIGHT, padx=8)
+        device.bind("<<ComboboxSelected>>", lambda e: self.change_plot_quality())
+        self.root.bind("<<ComputeDeviceFallback>>", self.on_compute_fallback, add="+")
+        Label(nav, text="预览计算设备 / 画质").pack(side=RIGHT, padx=8)
         main = Frame(self.root, padx=12, pady=12)
         main.pack(fill=BOTH, expand=True)
 
@@ -781,17 +807,36 @@ class ExMaterialApp:
         bind_editor_mousewheel(editor, editor_canvas)
         Label(self.root, textvariable=self.status, anchor="w", relief="sunken").pack(fill="x")
 
+    def on_compute_fallback(self, event=None) -> None:
+        self.compute_device.set("CPU")
+        try:
+            save_settings(self.settings_path, self.root.app_settings)
+        except OSError as exc:
+            self.set_status(f"已回退 CPU，但设置保存失败：{exc}")
+
     def change_plot_quality(self) -> None:
-        settings = AppSettings(self.plot_quality.get())
+        settings = AppSettings(self.plot_quality.get(), self.compute_device.get())
+        if settings.compute_device == "GPU":
+            try:
+                from .rendering import require_gpu
+            except ImportError:
+                from rendering import require_gpu
+            try:
+                require_gpu()
+            except RuntimeError as exc:
+                self.compute_device.set("CPU")
+                settings = AppSettings(self.plot_quality.get(), "CPU")
+                messagebox.showwarning("GPU 不可用", f"{exc}\n已切换到 CPU。")
         try:
             save_settings(self.settings_path, settings)
         except OSError as exc:
             self.plot_quality.set(self.root.app_settings.plot_quality)
+            self.compute_device.set(self.root.app_settings.compute_device)
             messagebox.showerror("设置保存失败", str(exc))
             return
         self.root.app_settings = settings
         self.root.event_generate("<<PlotSettingsChanged>>", when="tail")
-        self.set_status(f"预览模式：{settings.plot_quality}；原始数据与导出数据保留全部点")
+        self.set_status(f"预览：{settings.plot_quality} / {settings.compute_device}；GPU 加速大曲线抽稀，窗口绘制由 Tk 完成")
 
     def close_app(self) -> None:
         for workbench in self.xps_windows.values():
@@ -824,7 +869,8 @@ class ExMaterialApp:
     def build_menu(self) -> None:
         menubar = Menu(self.root)
         function_menu = Menu(menubar, tearoff=0)
-        function_menu.add_command(label="对比", command=self.open_compare_window)
+        function_menu.add_command(label="打开数据库目录…", command=self.open_database)
+        function_menu.add_command(label="显示数据库位置", command=lambda: messagebox.showinfo("数据库", str(self.store.root)))
         function_menu.add_command(label="XPS 工作台", command=self.open_xps)
         menubar.add_cascade(label="功能", menu=function_menu)
         help_menu = Menu(menubar, tearoff=0)
@@ -833,7 +879,34 @@ class ExMaterialApp:
         self.root.config(menu=menubar)
 
     def open_compare_window(self) -> None:
-        xrd_tools.XrdCompareWindow(self.root, self.store)
+        try:
+            from .comparison import SampleCompareWindow
+        except ImportError:
+            from comparison import SampleCompareWindow
+        existing = getattr(self, "compare_window", None)
+        if existing and existing.window.winfo_exists():
+            existing.window.lift()
+            return
+        self.compare_window = SampleCompareWindow(self.root, self.store)
+
+    def open_database(self) -> None:
+        folder = filedialog.askdirectory(parent=self.root, title="选择旧 information 数据目录")
+        if not folder:
+            return
+        path = Path(folder).resolve()
+        if not any(path.glob("*/samples.json")):
+            messagebox.showerror("目录不正确", "请选择包含材料子文件夹及 samples.json 的 information 目录。")
+            return
+        try:
+            from .xps_tools import save_workspace
+        except ImportError:
+            from xps_tools import save_workspace
+        try:
+            save_workspace(app_dir() / "data_location.json", {"path": str(path)})
+        except OSError as exc:
+            messagebox.showerror("保存目录失败", str(exc))
+            return
+        messagebox.showinfo("数据库已选择", f"下次启动将打开：\n{path}\n请保存当前编辑后重新启动程序。")
 
     def listbox_with_scrollbar(self, parent: Frame, width: int) -> Listbox:
         frame = Frame(parent)
@@ -1833,7 +1906,17 @@ def main() -> None:
         ttk.Style().theme_use("vista")
     except Exception:
         pass
-    ExMaterialApp(root)
+    try:
+        ExMaterialApp(root)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        messagebox.showerror("数据库无法打开", f"{exc}\n原数据未被覆盖。请选择原 information 数据目录。", parent=root)
+        folder = filedialog.askdirectory(parent=root, title="选择 information 数据目录")
+        if folder and any(Path(folder).glob("*/samples.json")):
+            (app_dir() / "data_location.json").write_text(
+                json.dumps({"path": str(Path(folder).resolve())}, ensure_ascii=False), encoding="utf-8")
+            messagebox.showinfo("目录已保存", "请重新启动程序。", parent=root)
+        root.destroy()
+        return
     root.update_idletasks()
     updates.confirm_update_startup(sys.argv[1:])
     root.mainloop()

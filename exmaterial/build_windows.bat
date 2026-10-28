@@ -10,7 +10,7 @@ if not defined PYTHON_CMD (
 )
 if not defined PYTHON_CMD (
     echo Python was not found by cmd. Trying PowerShell python...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%~dp0'; python -m pip install pyinstaller -r '..\requirements.txt'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; python -m PyInstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir . --name ExMaterial --icon '..\docs\assets\exmaterial-logo.ico' exmaterial_app.py; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Copy-Item -LiteralPath 'dist\ExMaterial.exe' -Destination 'ExMaterial.exe' -Force; exit 0"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%~dp0'; python -m pip install pyinstaller -r '..\requirements.txt'; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; python -m PyInstaller --noconfirm --clean --onefile --windowed --paths . --additional-hooks-dir . --name ExMaterial --icon '..\docs\assets\exmaterial-logo.ico' exmaterial_app.py; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Copy-Item -LiteralPath 'dist\ExMaterial.exe' -Destination 'ExMaterial.exe' -Force; exit 0"
     if not %errorlevel%==0 (
         echo Failed to build exe.
         pause
@@ -28,7 +28,7 @@ if not %errorlevel%==0 (
     pause
     exit /b 1
 )
-%PYTHON_CMD% -m PyInstaller --noconfirm --clean --onefile --windowed --additional-hooks-dir . --name ExMaterial --icon "..\docs\assets\exmaterial-logo.ico" exmaterial_app.py
+%PYTHON_CMD% -m PyInstaller --noconfirm --clean --onefile --windowed --paths . --additional-hooks-dir . --name ExMaterial --icon "..\docs\assets\exmaterial-logo.ico" exmaterial_app.py
 if not %errorlevel%==0 (
     echo Failed to build exe.
     pause

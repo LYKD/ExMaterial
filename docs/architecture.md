@@ -23,8 +23,10 @@ own their widgets and use the services below.
 New analysis modules should provide a pure processing function and the same plot
 configuration dictionary (`points`, labels, limits, ticks). Use the shared viewer
 and scheduler; never apply preview decimation to scientific computations or exports.
-Display quality is CPU rendering policy, not a GPU selector. A future GPU renderer
-can be introduced behind the common plotting interface after capability testing.
+Display quality and compute device are separate shared settings. Optional CuPy CUDA
+performs extrema reduction for large previews; Tk drawing and scientific processing
+remain on CPU. Capability/runtime failures fall back to CPU. Standard builds do not
+bundle CuPy; real CUDA hardware execution has not yet been validated.
 
 XPS controllers capture sample identity when created. Switching samples hides the
 previous controller without changing its save destination or losing unsaved edits.

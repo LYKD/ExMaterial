@@ -28,8 +28,9 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
+gpu = ["cupy-cuda12x>=13,<14"]
 build = ["pyinstaller>=6.0"]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+dev = ["pytest>=8.0", "ruff>=0.6", "numpy>=1.26"]
 
 [project.scripts]
 exmaterial = "exmaterial.exmaterial_app:main"

@@ -23,9 +23,9 @@ PROCESSED_PLOT_2THETA_FILE = "processed_xrd_2theta.jpg"
 PROCESSED_PLOT_D_FILE = "processed_xrd_d.jpg"
 MANUAL_XRD_PEAKS_FILE = "manual_xrd_peaks.json"
 try:
-    from .rendering import DeferredRedraw, preview_points, settings_for
+    from .rendering import DeferredRedraw, preview_points, settings_for, device_preview
 except ImportError:
-    from rendering import DeferredRedraw, preview_points, settings_for
+    from rendering import DeferredRedraw, preview_points, settings_for, device_preview
 
 
 DEFAULT_WAVELENGTH = "1.5406"
@@ -776,7 +776,7 @@ def draw_xrd_comparison(canvas: Canvas, series: list[dict], x_limits: tuple[floa
         color = item["color"]
         coords = []
         limit = settings_for(canvas).preview_limit
-        for d_value, y_value in preview_points(item["display_points"], limit):
+        for d_value, y_value in device_preview(canvas, item["display_points"], limit):
             if min(x_min, x_max) <= d_value <= max(x_min, x_max):
                 coords.extend([sx(d_value), sy(y_value)])
         if len(coords) >= 4:
@@ -840,6 +840,7 @@ def save_xrd_comparison_jpg(path: Path, series: list[dict]) -> None:
 
 
 class XrdCompareWindow:
+    kinds = ["XRD"]
     def __init__(self, parent, store) -> None:
         self.store = store
         self.series: list[dict] = []
@@ -851,7 +852,9 @@ class XrdCompareWindow:
         top.pack(fill="x")
         Label(top, text="对比性质").pack(side=LEFT)
         self.kind = StringVar(value="XRD")
-        ttk.Combobox(top, textvariable=self.kind, values=["XRD"], width=10, state="readonly").pack(side=LEFT, padx=(6, 14))
+        selector = ttk.Combobox(top, textvariable=self.kind, values=self.kinds, width=10, state="readonly")
+        selector.pack(side=LEFT, padx=(6, 14))
+        selector.bind("<<ComboboxSelected>>", self.kind_changed)
         Button(top, text="生成对比图", command=self.generate).pack(side=LEFT)
         Button(top, text="保存对比图", command=self.save).pack(side=LEFT, padx=(8, 0))
 
@@ -902,6 +905,12 @@ class XrdCompareWindow:
         self.deferred_redraw = DeferredRedraw(self.canvas, self.redraw)
         self.canvas.bind("<Configure>", self.deferred_redraw.request)
         self.canvas.bind("<Double-Button-1>", lambda _event: self.open_viewer())
+
+    def kind_changed(self, event=None) -> None:
+        self.clear_selected()
+        self.series = []
+        self.canvas.delete("all")
+        self.load_items()
 
     def load_items(self) -> None:
         self.sample_list.delete(0, END)

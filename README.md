@@ -14,6 +14,8 @@
 
 ## What it does
 
+Version 1.1.0 adds one sample comparison entry point for XRD, XPS and thermal conductivity, saved-data overlays and exports, legacy data-directory discovery and selection, and backups before updating existing sample indexes. CPU/GPU preview selection is persisted. Optional NVIDIA CUDA/CuPy acceleration applies to large-curve extrema reduction; Tk rendering and scientific processing remain on CPU, with explicit fallback on GPU errors. The standard Windows download does not bundle CuPy. Install `.[gpu]` for source use or run `exmaterial/build_gpu_windows.bat` for an optional GPU build. Real CUDA hardware execution has not been validated. Follow [CuPy's driver/runtime requirements](https://docs.cupy.dev/en/stable/install.html).
+
 - Creates material families and numbered samples, each with acquisition conditions and notes.
 - Stores multi-temperature thermal measurements and calculates thermal conductivity from density, heat capacity, and diffusivity.
 - Imports, converts, processes, plots, and compares XRD data in `2θ` and `d` coordinates.
